@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dungeon Blackout</title>
+  <style>
+    :root {
+      --bg: #05060a;
+      --panel: rgba(8, 10, 14, 0.72);
+      --line: rgba(255,255,255,0.1);
+      --text: #e8eef8;
+      --muted: #9ca7bb;
+      --accent: #ffd18a;
+      --danger: #ff5772;
+      --good: #79ffd6;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      user-select: none;
+    }
+    #screen {
+      position: fixed;
+      inset: 0;
+      overflow: hidden;
+      transform-origin: center center;
+      will-change: transform;
+    }
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: none;
+    }
+    #hud {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .panel {
+      position: absolute;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      box-shadow: 0 14px 40px rgba(0,0,0,0.4);
+      backdrop-filter: blur(8px);
+      border-radius: 14px;
+      padding: 12px 14px;
+      line-height: 1.35;
+      min-width: 240px;
+    }
+    #stats {
+      top: 14px;
+      left: 14px;
+      width: 292px;
+    }
+    #scoreBoard {
+      top: 14px;
+      right: 14px;
+      text-align: right;
+      min-width: 220px;
+    }
+    #mapPanel {
+      right: 14px;
+      bottom: 14px;
+      width: 224px;
+      padding: 10px 10px 12px;
+    }
+    #mapPanel .kicker {
+      margin-bottom: 8px;
+    }
+    #minimap {
+      display: block;
+      width: 100%;
+      height: auto;
+      aspect-ratio: 1;
+      border-radius: 10px;
+      background: rgba(4, 6, 10, 0.96);
+      border: 1px solid rgba(255,255,255,0.06);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03);
+      image-rendering: pixelated;
+    }
+    #mapLegend {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    #controlsHint {
+      left: 14px;
+      bottom: 14px;
+      max-width: 360px;
+      color: var(--muted);
+    }
+    #weaponCard {
+      margin-bottom: 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.025));
+      overflow: hidden;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+    }
+    #weaponPreviewWrap {
+      position: relative;
+      height: 150px;
+      background:
+        radial-gradient(circle at 50% 38%, rgba(255, 209, 138, 0.22), rgba(255, 209, 138, 0.05) 38%, transparent 62%),
+        linear-gradient(180deg, rgba(255,255,255,0.04), rgba(0,0,0,0.14));
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+    #weaponPreview {
+      display: block;
+      width: 100%;
+      height: 150px;
+      cursor: default;
+    }
+    #weaponMeta {
+      padding: 10px 12px 11px;
+    }
+    #weaponName {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: 0.01em;
+      line-height: 1.1;
+      margin-bottom: 8px;
+    }
+    #weaponAmmoRow {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 6px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    #weaponAmmoRow strong {
+      color: var(--text);
+      font-size: 18px;
+      font-weight: 800;
+    }
+    #weaponCycleHint {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .kicker {
+      display: block;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+    .big {
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      margin: 4px 0;
+      font-size: 14px;
+    }
+    .row strong { font-weight: 700; }
+    .good { color: var(--good); }
+    .danger { color: var(--danger); }
+    .accent { color: var(--accent); }
+    #message {
+      position: absolute;
+      left: 50%;
+      top: 10%;
+      transform: translateX(-50%);
+      padding: 12px 18px;
+      border-radius: 999px;
+      background: rgba(10, 12, 18, 0.64);
+      border: 1px solid rgba(255,255,255,0.08);
+      color: #fff;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      font-size: 13px;
+      opacity: 0;
+      transition: opacity 160ms ease;
+      white-space: nowrap;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+    }
+    #crosshair {
+      position: absolute;
+      width: 26px;
+      height: 26px;
+      margin-left: -13px;
+      margin-top: -13px;
+      border: 1px solid rgba(255,255,255,0.82);
+      border-radius: 999px;
+      box-shadow: 0 0 12px rgba(255,255,255,0.26), inset 0 0 12px rgba(255,255,255,0.18);
+      opacity: 0.9;
+    }
+    #crosshair::before,
+    #crosshair::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      background: rgba(255,255,255,0.9);
+      transform: translate(-50%, -50%);
+    }
+    #crosshair::before { width: 12px; height: 1px; }
+    #crosshair::after { width: 1px; height: 12px; }
+    #startScreen {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 50% 45%, rgba(255, 209, 138, 0.06), transparent 18%),
+        linear-gradient(180deg, rgba(0,0,0,0.1), rgba(0,0,0,0.78));
+      pointer-events: auto;
+    }
+    #startCard {
+      width: min(720px, calc(100vw - 32px));
+      background: rgba(7, 9, 14, 0.86);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 22px;
+      padding: 24px 26px 22px;
+      box-shadow: 0 30px 90px rgba(0,0,0,0.5);
+      backdrop-filter: blur(12px);
+    }
+    #startCard h1 {
+      margin: 0 0 8px;
+      font-size: clamp(36px, 6vw, 68px);
+      line-height: 0.95;
+      letter-spacing: -0.04em;
+    }
+    #startCard p {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.5;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin: 18px 0;
+    }
+    .card {
+      padding: 14px 15px;
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,0.06);
+      background: rgba(255,255,255,0.03);
+    }
+    .card strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .cta {
+      margin-top: 16px;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      border-radius: 999px;
+      padding: 14px 18px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 40px rgba(0,0,0,0.35);
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-size: 13px;
+    }
+    #damageFlash, #boomFlash, #vignette {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    #damageFlash {
+      background: radial-gradient(circle at center, rgba(255, 80, 110, 0.0) 35%, rgba(255, 60, 90, 0.45) 100%);
+      opacity: 0;
+    }
+    #boomFlash {
+      background: radial-gradient(circle at center, rgba(255, 255, 255, 0.82), rgba(255, 208, 130, 0.25) 32%, rgba(255, 208, 130, 0.0) 62%);
+      opacity: 0;
+    }
+    #vignette {
+      background: radial-gradient(circle at center, rgba(0,0,0,0) 28%, rgba(0,0,0,0.14) 58%, rgba(0,0,0,0.42) 100%);
+    }
+    #restartPrompt {
+      display: none;
+      margin-top: 8px;
+      font-size: 14px;
+      color: var(--accent);
+      font-weight: 700;
+    }
+    @media (max-width: 800px) {
+      .grid { grid-template-columns: 1fr; }
+      #controlsHint { display: none; }
+      .panel { min-width: 0; }
+      #stats, #scoreBoard, #mapPanel {
+        width: calc(50vw - 20px);
+      }
+      #mapPanel {
+        bottom: 14px;
+      }
+      #stats {
+        width: calc(50vw - 20px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="screen">
+    <div id="hud">
+      <div id="stats" class="panel">
+        <span class="kicker">Loadout</span>
+        <div id="weaponCard">
+          <div id="weaponPreviewWrap">
+            <canvas id="weaponPreview" width="280" height="150"></canvas>
+          </div>
+          <div id="weaponMeta">
+            <div id="weaponName">Blackout Carbine</div>
+            <div id="weaponAmmoRow"><span>Ammo Left</span><strong id="hudAmmo">∞</strong></div>
+            <div id="weaponCycleHint">Press Q to cycle weapons</div>
+          </div>
+        </div>
+        <div class="row"><span>Health</span><strong id="hudHealth">100</strong></div>
+        <div class="row"><span>Grenades</span><strong id="hudGrenades">3</strong></div>
+      </div>
+
+      <div id="scoreBoard" class="panel">
+        <span class="kicker">Survival</span>
+        <div class="big" id="hudTime">00:00</div>
+        <div class="row"><span>Kills</span><strong id="hudKills">0</strong></div>
+        <div class="row"><span>Score</span><strong id="hudScore">0</strong></div>
+        <div class="row"><span>Best</span><strong id="hudBest">0</strong></div>
+      </div>
+
+      <div id="mapPanel" class="panel">
+        <span class="kicker">Exploration</span>
+        <canvas id="minimap" width="224" height="224"></canvas>
+        <div id="mapLegend">Bright = current sight, dim = explored memory. Enemies show red, loot keeps its pickup color.</div>
+      </div>
+
+      <div id="controlsHint" class="panel">
+        <span class="kicker">Controls</span>
+        <div>Move <span class="accent">WASD</span> &nbsp; Aim <span class="accent">Mouse</span> &nbsp; Fire <span class="accent">LMB</span></div>
+        <div>Grenade <span class="accent">RMB</span> / <span class="accent">Space</span> &nbsp; Switch <span class="accent">Q</span></div>
+        <div>Restart <span class="accent">R</span></div>
+      </div>
+
+      <div id="message">Torch online</div>
+      <div id="crosshair"></div>
+      <div id="damageFlash"></div>
+      <div id="boomFlash"></div>
+      <div id="vignette"></div>
+
+      <div id="startScreen">
+        <div id="startCard">
+          <span class="kicker">Top-down dungeon survival</span>
+          <h1>Dungeon<br/>Blackout</h1>
+          <p>
+            Sprint through a dungeon swallowed by darkness with only a torch beam, a sack of grenades,
+            and a pile of overpowered guns. The corridors you uncover stay readable, the minimap remembers what you reveal,
+            shadows stretch from walls and creatures, and every big blast rattles the whole screen.
+          </p>
+          <div class="grid">
+            <div class="card">
+              <strong>Stay alive</strong>
+              Survive as long as possible while the spawn rate climbs and swarm events hit harder.
+            </div>
+            <div class="card">
+              <strong>Loot fast</strong>
+              Grab life-ups, ammo, grenades, and weapon drops before the horde reaches you.
+            </div>
+            <div class="card">
+              <strong>Fight in the dark</strong>
+              Your torch is the only real light source. Enemies and walls throw shadows inside the beam.
+            </div>
+            <div class="card">
+              <strong>Run it locally</strong>
+              Open this folder with a simple local server and load <span class="accent">index.html</span> in the browser.
+            </div>
+          </div>
+          <div class="cta">Click anywhere to enter the dungeon</div>
+          <div id="restartPrompt">Press R or click to dive back in.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js"
+      }
+    }
+  </script>
+  <script type="module" src="./game.mjs"></script>
+</body>
+</html>
