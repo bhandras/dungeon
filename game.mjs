@@ -397,6 +397,7 @@ resetGame();
 animate();
 
 function createAudioEngine() {
+  const SFX_GAIN = 2.35;
   let ctx = null;
   let master = null;
   let noiseBuffer = null;
@@ -405,8 +406,15 @@ function createAudioEngine() {
     if (!ctx) {
       ctx = new (window.AudioContext || window.webkitAudioContext)();
       master = ctx.createGain();
-      master.gain.value = 0.28;
-      master.connect(ctx.destination);
+      master.gain.value = 0.9;
+      const limiter = ctx.createDynamicsCompressor();
+      limiter.threshold.value = -12;
+      limiter.knee.value = 16;
+      limiter.ratio.value = 8;
+      limiter.attack.value = 0.003;
+      limiter.release.value = 0.12;
+      master.connect(limiter);
+      limiter.connect(ctx.destination);
       noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 1.2, ctx.sampleRate);
       const data = noiseBuffer.getChannelData(0);
       for (let i = 0; i < data.length; i += 1) {
@@ -421,11 +429,12 @@ function createAudioEngine() {
     const t0 = ctx.currentTime + when;
     const gain = ctx.createGain();
     const o = ctx.createOscillator();
+    const peak = Math.min(1.4, volume * SFX_GAIN);
     o.type = type;
     o.frequency.setValueAtTime(freq, t0);
     if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(1, slideTo), t0 + duration);
     gain.gain.setValueAtTime(0.0001, t0);
-    gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume), t0 + 0.01);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, peak), t0 + 0.01);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
     o.connect(gain);
     gain.connect(master);
@@ -445,7 +454,7 @@ function createAudioEngine() {
     lp.type = 'lowpass';
     lp.frequency.value = lowpassFreq;
     const gain = ctx.createGain();
-    gain.gain.setValueAtTime(volume, t0);
+    gain.gain.setValueAtTime(Math.min(1.4, volume * SFX_GAIN), t0);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
     src.connect(hp);
     hp.connect(lp);
