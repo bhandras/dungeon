@@ -271,13 +271,13 @@ const WEAPONS = {
   nova: {
     name: 'Halo Pulse',
     ammoLabel: 'cells',
-    fireRate: 2.8,
-    damage: 42,
+    fireRate: 6.5,
+    damage: 50,
     spread: 0,
     pellets: 1,
-    range: 11.5,
+    range: 16,
     recoil: 0.08,
-    shake: 0.22,
+    shake: 0.26,
     tracerColor: 0x79ffd6,
     hitColor: 0x79ffd6,
     hitSpark: 11,
@@ -397,7 +397,8 @@ resetGame();
 animate();
 
 function createAudioEngine() {
-  const SFX_GAIN = 2.35;
+  const SFX_GAIN = 5.2;
+  const MAX_VOICE_GAIN = 3.2;
   let ctx = null;
   let master = null;
   let noiseBuffer = null;
@@ -406,13 +407,13 @@ function createAudioEngine() {
     if (!ctx) {
       ctx = new (window.AudioContext || window.webkitAudioContext)();
       master = ctx.createGain();
-      master.gain.value = 0.9;
+      master.gain.value = 1.35;
       const limiter = ctx.createDynamicsCompressor();
-      limiter.threshold.value = -12;
-      limiter.knee.value = 16;
-      limiter.ratio.value = 8;
-      limiter.attack.value = 0.003;
-      limiter.release.value = 0.12;
+      limiter.threshold.value = -4;
+      limiter.knee.value = 10;
+      limiter.ratio.value = 3;
+      limiter.attack.value = 0.001;
+      limiter.release.value = 0.08;
       master.connect(limiter);
       limiter.connect(ctx.destination);
       noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 1.2, ctx.sampleRate);
@@ -429,7 +430,7 @@ function createAudioEngine() {
     const t0 = ctx.currentTime + when;
     const gain = ctx.createGain();
     const o = ctx.createOscillator();
-    const peak = Math.min(1.4, volume * SFX_GAIN);
+    const peak = Math.min(MAX_VOICE_GAIN, volume * SFX_GAIN);
     o.type = type;
     o.frequency.setValueAtTime(freq, t0);
     if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(1, slideTo), t0 + duration);
@@ -454,7 +455,7 @@ function createAudioEngine() {
     lp.type = 'lowpass';
     lp.frequency.value = lowpassFreq;
     const gain = ctx.createGain();
-    gain.gain.setValueAtTime(Math.min(1.4, volume * SFX_GAIN), t0);
+    gain.gain.setValueAtTime(Math.min(MAX_VOICE_GAIN, volume * SFX_GAIN), t0);
     gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
     src.connect(hp);
     hp.connect(lp);
