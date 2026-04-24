@@ -405,7 +405,7 @@ function createAudioEngine() {
     if (!ctx) {
       ctx = new (window.AudioContext || window.webkitAudioContext)();
       master = ctx.createGain();
-      master.gain.value = 0.16;
+      master.gain.value = 0.28;
       master.connect(ctx.destination);
       noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 1.2, ctx.sampleRate);
       const data = noiseBuffer.getChannelData(0);
@@ -460,45 +460,55 @@ function createAudioEngine() {
     shot(kind) {
       if (!ctx) return;
       if (kind === 'sidearm') {
-        osc(240, 0.08, 'square', 0.045, 90);
+        osc(240, 0.08, 'square', 0.07, 90);
+        osc(960, 0.035, 'triangle', 0.022, 360);
       } else if (kind === 'carbine') {
-        osc(180, 0.05, 'sawtooth', 0.03, 65);
+        osc(180, 0.06, 'sawtooth', 0.052, 65);
+        osc(640, 0.035, 'square', 0.016, 260);
       } else if (kind === 'shotgun') {
-        noise(0.18, 0.06, 120, 1400);
-        osc(105, 0.12, 'triangle', 0.03, 45);
+        noise(0.2, 0.1, 90, 1800);
+        osc(96, 0.14, 'triangle', 0.058, 34);
+        osc(260, 0.045, 'square', 0.025, 110, 0.01);
       } else if (kind === 'flamethrower') {
-        noise(0.11, 0.04, 180, 2200);
-        osc(130, 0.08, 'sawtooth', 0.015, 95);
+        noise(0.13, 0.075, 120, 2800);
+        osc(118, 0.09, 'sawtooth', 0.03, 78);
+        osc(310, 0.035, 'triangle', 0.014, 180, 0.02);
       } else if (kind === 'nova') {
-        osc(260, 0.16, 'triangle', 0.03, 110);
-        osc(760, 0.12, 'sine', 0.014, 220);
+        osc(230, 0.2, 'triangle', 0.065, 72);
+        osc(760, 0.14, 'sine', 0.034, 190);
+        osc(1180, 0.1, 'square', 0.015, 420, 0.025);
       } else if (kind === 'lightning') {
-        noise(0.06, 0.03, 600, 4200);
-        osc(460, 0.06, 'square', 0.018, 220);
+        noise(0.075, 0.07, 450, 5200);
+        osc(460, 0.07, 'square', 0.035, 170);
+        osc(920, 0.045, 'sawtooth', 0.018, 340, 0.015);
       }
     },
     hit() {
       if (!ctx) return;
-      osc(680, 0.04, 'sine', 0.012, 420);
+      osc(680, 0.045, 'sine', 0.024, 360);
+      osc(220, 0.035, 'triangle', 0.01, 110);
     },
     pickup() {
       if (!ctx) return;
-      osc(620, 0.08, 'triangle', 0.025, 900);
-      osc(900, 0.12, 'sine', 0.02, 1400, 0.03);
+      osc(520, 0.08, 'triangle', 0.04, 900);
+      osc(900, 0.12, 'sine', 0.036, 1500, 0.03);
+      osc(1320, 0.08, 'sine', 0.018, 1900, 0.07);
     },
     hurt() {
       if (!ctx) return;
-      osc(80, 0.16, 'sawtooth', 0.045, 52);
+      osc(80, 0.16, 'sawtooth', 0.07, 52);
     },
     explosion(big = false) {
       if (!ctx) return;
-      noise(big ? 0.42 : 0.24, big ? 0.09 : 0.06, 80, big ? 800 : 1400);
-      osc(big ? 62 : 90, big ? 0.35 : 0.18, 'triangle', big ? 0.05 : 0.03, 26);
+      noise(big ? 0.46 : 0.26, big ? 0.14 : 0.095, 60, big ? 920 : 1600);
+      osc(big ? 56 : 86, big ? 0.38 : 0.2, 'triangle', big ? 0.085 : 0.052, 24);
+      osc(big ? 180 : 260, 0.08, 'square', big ? 0.028 : 0.018, 90, 0.02);
     },
     swarm() {
       if (!ctx) return;
-      osc(210, 0.24, 'sawtooth', 0.02, 120);
-      osc(160, 0.28, 'triangle', 0.016, 90, 0.06);
+      osc(210, 0.24, 'sawtooth', 0.038, 120);
+      osc(160, 0.28, 'triangle', 0.028, 90, 0.06);
+      noise(0.18, 0.025, 220, 1600);
     },
   };
 }
