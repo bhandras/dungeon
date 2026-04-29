@@ -114,7 +114,7 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.42;
+renderer.toneMappingExposure = 1.64;
 screenEl.prepend(renderer.domElement);
 
 const worldGroup = new THREE.Group();
@@ -1701,6 +1701,10 @@ function spawnParticleSprite(color, position, velocity, size, life, gravity = 0,
   particles.push({ sprite, velocity: velocity.clone(), life, maxLife: life, gravity });
 }
 
+function spawnGlowOrb(position, color, size, life = 0.28, opacity = 0.9) {
+  spawnParticleSprite(color, position, new THREE.Vector3(0, 0.08, 0), size, life, 0, opacity);
+}
+
 function spawnBurst(position, color, count, speed, size, life, spreadY = 0.9) {
   for (let i = 0; i < count; i += 1) {
     const dir = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * spreadY, Math.random() * 2 - 1).normalize();
@@ -1708,6 +1712,15 @@ function spawnBurst(position, color, count, speed, size, life, spreadY = 0.9) {
     const p = position.clone().addScaledVector(dir, 0.25 + Math.random() * 0.25);
     spawnParticleSprite(color, p, vel, size * (0.7 + Math.random() * 0.7), life * (0.7 + Math.random() * 0.5), speed * 0.25, 0.95);
   }
+}
+
+function spawnSpellImpact(position, color, scale = 1, accent = 0xffffff) {
+  const core = position.clone().add(new THREE.Vector3(0, 0.18, 0));
+  spawnGlowOrb(core, accent, 1.35 * scale, 0.16, 0.96);
+  spawnGlowOrb(core, color, 2.25 * scale, 0.28, 0.82);
+  spawnShockwave(core.clone(), color, 1.3 * scale, 0.28, 15 * scale, 0.95);
+  spawnShockwave(core.clone().add(new THREE.Vector3(0, 0.02, 0)), accent, 0.7 * scale, 0.2, 10 * scale, 0.46);
+  spawnBurst(core, color, Math.ceil(10 * scale), 3.2 * scale, 0.24 * scale, 0.24, 0.75);
 }
 
 function createProjectileRibbonMaterial(color, alpha = 0.75) {
@@ -1736,11 +1749,15 @@ function createProjectileRibbonMaterial(color, alpha = 0.75) {
       uniform float uSeed;
       varying vec2 vUv;
       void main() {
-        float core = smoothstep(0.5, 0.08, abs(vUv.y - 0.5));
-        float head = smoothstep(0.0, 0.22, vUv.x) * smoothstep(1.0, 0.55, vUv.x);
-        float streak = 0.62 + 0.38 * sin(vUv.x * 28.0 - uTime * 18.0 + uSeed);
-        float edge = pow(core, 1.7) * head;
-        vec3 color = mix(vec3(1.0), uColor, 0.62) * (1.1 + streak * 0.55);
+        float center = abs(vUv.y - 0.5);
+        float core = smoothstep(0.5, 0.035, center);
+        float aura = smoothstep(0.5, 0.22, center);
+        float head = smoothstep(0.0, 0.14, vUv.x) * smoothstep(1.0, 0.45, vUv.x);
+        float streak = 0.58 + 0.42 * sin(vUv.x * 34.0 - uTime * 24.0 + uSeed);
+        float rune = 0.5 + 0.5 * sin((vUv.x + center) * 72.0 + uTime * 10.0 + uSeed);
+        float edge = (pow(core, 2.0) * 1.35 + aura * 0.34 + rune * core * 0.18) * head;
+        vec3 hot = mix(vec3(1.0), uColor, 0.38);
+        vec3 color = mix(uColor, hot, core) * (1.28 + streak * 0.72);
         gl_FragColor = vec4(color, edge * uAlpha);
       }
     `,
@@ -1759,13 +1776,29 @@ function spawnTrace(start, end, color, thickness = 0.08, life = 0.1) {
   const sparks = [];
   const count = clamp(Math.ceil(distance / 1.6), 4, 11);
   const group = new THREE.Group();
+  const auraBeam = new THREE.Mesh(
+    new THREE.PlaneGeometry(Math.max(0.01, distance), thickness * 15.5),
+    createProjectileRibbonMaterial(color, 0.28)
+  );
+  auraBeam.position.copy(start).add(end).multiplyScalar(0.5);
+  auraBeam.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), dir.clone().normalize());
+  group.add(auraBeam);
+
   const beam = new THREE.Mesh(
-    new THREE.PlaneGeometry(Math.max(0.01, distance), thickness * 8.8),
-    createProjectileRibbonMaterial(color, 0.62)
+    new THREE.PlaneGeometry(Math.max(0.01, distance), thickness * 9.6),
+    createProjectileRibbonMaterial(color, 0.78)
   );
   beam.position.copy(start).add(end).multiplyScalar(0.5);
   beam.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), dir.clone().normalize());
   group.add(beam);
+
+  const coreBeam = new THREE.Mesh(
+    new THREE.PlaneGeometry(Math.max(0.01, distance), thickness * 3.2),
+    createProjectileRibbonMaterial(0xffffff, 0.58)
+  );
+  coreBeam.position.copy(beam.position);
+  coreBeam.quaternion.copy(beam.quaternion);
+  group.add(coreBeam);
 
   for (let i = 0; i < count; i += 1) {
     const t = count === 1 ? 1 : i / (count - 1);
@@ -1779,7 +1812,7 @@ function spawnTrace(start, end, color, thickness = 0.08, life = 0.1) {
       blending: THREE.AdditiveBlending,
     }));
     sprite.position.lerpVectors(start, end, t);
-    const baseScale = thickness * (pulse ? 9.5 : 5.8) * (0.85 + Math.random() * 0.45);
+    const baseScale = thickness * (pulse ? 13 : 7.4) * (0.85 + Math.random() * 0.45);
     sprite.scale.setScalar(baseScale);
     group.add(sprite);
     sprites.push(sprite);
@@ -1801,7 +1834,7 @@ function spawnTrace(start, end, color, thickness = 0.08, life = 0.1) {
     blending: THREE.AdditiveBlending,
   }));
   head.position.copy(end);
-  head.scale.setScalar(thickness * 11.2);
+  head.scale.setScalar(thickness * 16.5);
 
   const ring = new THREE.Sprite(new THREE.SpriteMaterial({
     map: ringTexture,
@@ -1813,11 +1846,11 @@ function spawnTrace(start, end, color, thickness = 0.08, life = 0.1) {
   }));
   ring.position.copy(end);
   ring.position.y += 0.04;
-  ring.scale.setScalar(thickness * 6.4);
+  ring.scale.setScalar(thickness * 9.5);
 
   group.add(head, ring);
   fxGroup.add(group);
-  traces.push({ group, beam, sprites, sparks, head, ring, start: start.clone(), end: end.clone(), side, life, maxLife: life, thickness });
+  traces.push({ group, beams: [auraBeam, beam, coreBeam], beam, sprites, sparks, head, ring, start: start.clone(), end: end.clone(), side, life, maxLife: life, thickness });
 }
 
 function spawnFlameTrail(start, end, color, density = 6) {
@@ -1833,7 +1866,8 @@ function spawnFlameTrail(start, end, color, density = 6) {
       1.2 + Math.random() * 1.2,
       dir.z * 0.3 + (Math.random() * 2 - 1) * 0.9
     );
-    spawnParticleSprite(color, pos, velocity, 0.18 + Math.random() * 0.18, 0.16 + Math.random() * 0.12, 1.4, 0.88);
+    spawnParticleSprite(color, pos, velocity, 0.28 + Math.random() * 0.3, 0.2 + Math.random() * 0.16, 1.25, 0.9);
+    if (i % 3 === 0) spawnParticleSprite(0xfff0c2, pos.clone().add(new THREE.Vector3(0, 0.08, 0)), velocity.clone().multiplyScalar(0.45), 0.14 + Math.random() * 0.12, 0.14, 0.6, 0.82);
   }
 }
 
@@ -1847,12 +1881,12 @@ function spawnPickupCollectEffect(pickup) {
   }
 }
 
-function spawnShockwave(position, color = 0xffd18a, radius = 1.2) {
+function spawnShockwave(position, color = 0xffd18a, radius = 1.2, life = 0.34, grow = 20, opacity = 0.9) {
   const mat = new THREE.SpriteMaterial({
     map: ringTexture,
     color,
     transparent: true,
-    opacity: 0.9,
+    opacity,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
   });
@@ -1861,7 +1895,7 @@ function spawnShockwave(position, color = 0xffd18a, radius = 1.2) {
   sprite.position.y = 0.15;
   sprite.scale.set(radius, radius, 1);
   fxGroup.add(sprite);
-  shockwaves.push({ sprite, life: 0.34, maxLife: 0.34, grow: 20 });
+  shockwaves.push({ sprite, life, maxLife: life, grow, baseOpacity: opacity });
 }
 
 function addBlastLight(position, color, intensity, distance, life) {
@@ -1869,14 +1903,14 @@ function addBlastLight(position, color, intensity, distance, life) {
   light.position.copy(position);
   light.position.y += 1.2;
   scene.add(light);
-  blastLights.push({ light, life, maxLife: life });
+  blastLights.push({ light, intensity, life, maxLife: life });
 }
 
 function addMuzzleLight(position, color, intensity, distance, life) {
   const light = new THREE.PointLight(color, intensity, distance, 2);
   light.position.copy(position);
   scene.add(light);
-  muzzleLights.push({ light, life, maxLife: life });
+  muzzleLights.push({ light, intensity, life, maxLife: life });
 }
 
 function spawnFloatingText(text, position, color = '#ffffff') {
@@ -2081,8 +2115,10 @@ function resetGame() {
   particles.length = 0;
   for (const trace of traces) {
     fxGroup.remove(trace.group);
-    trace.beam.geometry.dispose();
-    trace.beam.material.dispose();
+    for (const beam of trace.beams || [trace.beam]) {
+      beam.geometry.dispose();
+      beam.material.dispose();
+    }
     for (const sprite of trace.sprites) sprite.material.dispose();
     trace.head.material.dispose();
     trace.ring.material.dispose();
@@ -2219,8 +2255,9 @@ function fireFlamethrower(weapon, muzzle, baseDir) {
     const reach = weapon.range * (0.58 + Math.random() * 0.42);
     const { hitEnemy, enemyDist, hitPoint } = traceEnemyHit(muzzle, dir, reach);
     const trailEnd = muzzle.clone().lerp(hitPoint, 0.92);
-    spawnFlameTrail(muzzle, trailEnd, weapon.tracerColor, 7);
-    spawnBurst(trailEnd, weapon.hitColor, 3, 1.4, 0.18, 0.12, 0.9);
+    spawnFlameTrail(muzzle, trailEnd, weapon.tracerColor, 10);
+    spawnGlowOrb(trailEnd.clone().add(new THREE.Vector3(0, 0.18, 0)), weapon.hitColor, 0.75, 0.16, 0.62);
+    spawnBurst(trailEnd, weapon.hitColor, 5, 2.0, 0.24, 0.16, 1.0);
 
     if (hitEnemy) {
       const scale = 1 - clamp(enemyDist / weapon.range, 0, 0.78);
@@ -2231,14 +2268,18 @@ function fireFlamethrower(weapon, muzzle, baseDir) {
 
 function fireNovaWeapon(weapon, muzzle) {
   const origin = player.group.position.clone().add(new THREE.Vector3(0, 0.25, 0));
-  spawnShockwave(origin.clone(), weapon.tracerColor, weapon.range * 0.42);
-  spawnBurst(origin.clone().add(new THREE.Vector3(0, 0.1, 0)), weapon.tracerColor, 18, 4.8, 0.34, 0.36, 0.15);
+  spawnGlowOrb(origin.clone().add(new THREE.Vector3(0, 0.32, 0)), 0xffffff, 2.8, 0.18, 0.95);
+  spawnGlowOrb(origin.clone().add(new THREE.Vector3(0, 0.24, 0)), weapon.tracerColor, 5.4, 0.36, 0.78);
+  spawnShockwave(origin.clone(), weapon.tracerColor, weapon.range * 0.5, 0.42, 24, 1);
+  spawnShockwave(origin.clone().add(new THREE.Vector3(0, 0.03, 0)), 0xffffff, weapon.range * 0.24, 0.24, 16, 0.5);
+  spawnBurst(origin.clone().add(new THREE.Vector3(0, 0.1, 0)), weapon.tracerColor, 30, 6.5, 0.48, 0.42, 0.25);
+  addBlastLight(origin.clone(), weapon.tracerColor, 16, weapon.range * 1.45, 0.22);
 
-  for (let i = 0; i < 18; i += 1) {
-    const angle = (i / 18) * Math.PI * 2;
+  for (let i = 0; i < 26; i += 1) {
+    const angle = (i / 26) * Math.PI * 2;
     const dir = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
     const end = origin.clone().addScaledVector(dir, weapon.range * (0.86 + Math.random() * 0.16));
-    spawnTrace(origin, end, weapon.tracerColor, 0.09, 0.15);
+    spawnTrace(origin, end, weapon.tracerColor, 0.14, 0.2);
   }
 
   for (const enemy of enemies.slice()) {
@@ -2246,6 +2287,7 @@ function fireNovaWeapon(weapon, muzzle) {
     const dist = point.distanceTo(origin);
     if (dist > weapon.range) continue;
     const scale = 1 - dist / weapon.range;
+    spawnSpellImpact(point, weapon.tracerColor, 0.65 + scale * 0.85, 0xffffff);
     damageEnemy(enemy, weapon.damage * (0.55 + scale * 0.75), point, weapon);
   }
 }
@@ -2272,8 +2314,8 @@ function fireLightningWeapon(weapon, muzzle, baseDir) {
 
   if (!primary) {
     const missPoint = muzzle.clone().add(aimDir.multiplyScalar(stepRayToWall(muzzle, aimDir, weapon.range)));
-    spawnTrace(muzzle, missPoint, weapon.tracerColor, 0.08, 0.12);
-    spawnBurst(missPoint, weapon.hitColor, 4, 1.8, 0.2, 0.16, 0.4);
+    spawnTrace(muzzle, missPoint, weapon.tracerColor, 0.13, 0.16);
+    spawnSpellImpact(missPoint, weapon.hitColor, 0.58, weapon.tracerColor);
     return;
   }
 
@@ -2284,8 +2326,8 @@ function fireLightningWeapon(weapon, muzzle, baseDir) {
 
   for (let jumps = 0; jumps < 3 && current; jumps += 1) {
     const point = current.group.position.clone().add(new THREE.Vector3(0, 1, 0));
-    spawnTrace(anchor, point, weapon.tracerColor, 0.08 + jumps * 0.015, 0.13);
-    spawnBurst(point, weapon.hitColor, 5, 1.8, 0.2, 0.16, 0.5);
+    spawnTrace(anchor, point, weapon.tracerColor, 0.13 + jumps * 0.025, 0.17);
+    spawnSpellImpact(point, weapon.hitColor, 0.72 + jumps * 0.16, weapon.tracerColor);
     damageEnemy(current, weapon.damage * damageScale, point, weapon);
     chained.add(current);
     anchor = point;
@@ -2326,8 +2368,8 @@ function fireCurrentWeapon() {
   } else if (key === 'lightning') {
     fireLightningWeapon(weapon, muzzle, baseDir);
   } else {
-    const traceThickness = key === 'shotgun' ? 0.12 : 0.11;
-    const traceLife = key === 'shotgun' ? 0.11 : 0.1;
+    const traceThickness = key === 'shotgun' ? 0.18 : 0.145;
+    const traceLife = key === 'shotgun' ? 0.16 : 0.13;
 
     for (let i = 0; i < weapon.pellets; i += 1) {
       const spread = (Math.random() * 2 - 1) * weapon.spread;
@@ -2335,13 +2377,13 @@ function fireCurrentWeapon() {
       const dir = new THREE.Vector3(dir2.x, 0, dir2.z).normalize();
       const { hitEnemy, enemyDist, hitPoint } = traceEnemyHit(muzzle, dir, weapon.range);
 
-      spawnTrace(muzzle, hitPoint, weapon.tracerColor, traceThickness * (0.9 + Math.random() * 0.22), traceLife + Math.random() * 0.03);
+      spawnTrace(muzzle, hitPoint, weapon.tracerColor, traceThickness * (0.9 + Math.random() * 0.24), traceLife + Math.random() * 0.04);
 
       if (hitEnemy) {
         const dmg = weapon.damage * (key === 'shotgun' ? 1 - clamp(enemyDist / weapon.range, 0, 0.5) : 1);
         damageEnemy(hitEnemy, dmg, hitPoint, weapon);
       } else {
-        spawnBurst(hitPoint.clone().add(new THREE.Vector3(0, 0.15, 0)), weapon.hitColor, weapon.hitSpark, 2.0, 0.25, 0.22, 0.4);
+        spawnSpellImpact(hitPoint.clone().add(new THREE.Vector3(0, 0.15, 0)), weapon.hitColor, key === 'shotgun' ? 0.72 : 0.48, weapon.tracerColor);
       }
     }
   }
@@ -2359,8 +2401,9 @@ function fireCurrentWeapon() {
 
   playerState.fireCooldown = 1 / weapon.fireRate;
   game.screenShake = Math.max(game.screenShake, weapon.shake);
-  addMuzzleLight(muzzle, weapon.tracerColor, key === 'shotgun' ? 2.8 : key === 'nova' ? 3.3 : 1.8, key === 'shotgun' ? 7 : key === 'nova' ? 9 : 5.5, 0.06);
-  spawnBurst(muzzle, weapon.tracerColor, key === 'flamethrower' ? 7 : key === 'nova' ? 10 : key === 'shotgun' ? 8 : 4, key === 'nova' ? 3.2 : 2.4, key === 'shotgun' ? 0.33 : 0.24, 0.18, 0.3);
+  addMuzzleLight(muzzle, weapon.tracerColor, key === 'shotgun' ? 7.5 : key === 'nova' ? 12 : key === 'lightning' ? 7 : key === 'flamethrower' ? 5.5 : 4.8, key === 'shotgun' ? 11 : key === 'nova' ? 18 : 9, 0.08);
+  spawnGlowOrb(muzzle, weapon.tracerColor, key === 'nova' ? 1.55 : key === 'shotgun' ? 1.25 : 0.95, 0.12, 0.86);
+  spawnBurst(muzzle, weapon.tracerColor, key === 'flamethrower' ? 10 : key === 'nova' ? 18 : key === 'shotgun' ? 14 : 7, key === 'nova' ? 4.6 : 3.1, key === 'shotgun' ? 0.44 : 0.32, 0.2, 0.38);
   audio.shot(weapon.sound);
   updateHud();
 }
@@ -2368,8 +2411,10 @@ function fireCurrentWeapon() {
 function damageEnemy(enemy, amount, point, weapon) {
   enemy.health -= amount;
   enemy.hitFlash = 0.12;
-  spawnBurst(point.clone(), weapon.hitColor, 6, 2.6, 0.28, 0.24, 0.5);
-  spawnBurst(point.clone(), 0xff5b74, 3, 1.8, 0.25, 0.2, 0.35);
+  const impactScale = clamp(0.38 + amount * 0.018, 0.48, 1.25);
+  spawnSpellImpact(point.clone(), weapon.hitColor, impactScale, weapon.tracerColor || 0xffffff);
+  spawnBurst(point.clone(), weapon.hitColor, 8, 3.2, 0.32, 0.25, 0.55);
+  spawnBurst(point.clone(), 0xff5b74, 4, 2.2, 0.29, 0.22, 0.35);
   audio.hit();
   if (enemy.health <= 0) {
     killEnemy(enemy, point);
@@ -2382,9 +2427,12 @@ function killEnemy(enemy, point) {
   actorsGroup.remove(enemy.group);
   game.kills += 1;
   game.score += enemy.type.score + game.elapsed * 0.35;
-  spawnShockwave(point.clone().add(new THREE.Vector3(0, 0.18, 0)), 0xff697d, 1.3 * enemy.type.scale);
-  spawnBurst(point.clone(), 0xff697d, 14, 4.2, 0.42, 0.38, 0.8);
-  spawnBurst(point.clone(), 0xffd18a, 6, 2.1, 0.34, 0.24, 0.35);
+  spawnGlowOrb(point.clone().add(new THREE.Vector3(0, 0.48, 0)), enemy.type.eye, 2.4 * enemy.type.scale, 0.26, 0.86);
+  spawnShockwave(point.clone().add(new THREE.Vector3(0, 0.18, 0)), enemy.type.eye, 1.65 * enemy.type.scale, 0.34, 18, 0.9);
+  spawnShockwave(point.clone().add(new THREE.Vector3(0, 0.2, 0)), 0xffd18a, 0.9 * enemy.type.scale, 0.22, 12, 0.55);
+  spawnBurst(point.clone(), 0xff697d, 20, 5.4, 0.48, 0.42, 0.9);
+  spawnBurst(point.clone(), 0xffd18a, 10, 3.0, 0.4, 0.3, 0.45);
+  addBlastLight(point.clone(), enemy.type.eye, 8 * enemy.type.scale, 10 * enemy.type.scale, 0.18);
   spawnFloatingText(`+${enemy.type.score}`, point.clone().add(new THREE.Vector3(0, 1.8, 0)), '#ffd18a');
   if (Math.random() < 0.11) {
     const lootRoll = Math.random();
@@ -2422,10 +2470,14 @@ function throwGrenade() {
 }
 
 function explode(position, radius, damage, big = true, color = 0xffb566) {
-  spawnShockwave(position.clone().add(new THREE.Vector3(0, 0.22, 0)), color, radius * 0.8);
-  spawnBurst(position.clone().add(new THREE.Vector3(0, 0.5, 0)), color, big ? 26 : 14, big ? 7 : 4.5, big ? 0.58 : 0.42, big ? 0.55 : 0.36, 1.2);
-  spawnBurst(position.clone(), 0xfff0c2, big ? 10 : 5, big ? 3.6 : 2.2, 0.52, 0.25, 0.45);
-  addBlastLight(position.clone(), color, big ? 8 : 4.5, big ? 16 : 11, big ? 0.3 : 0.2);
+  const lifted = position.clone().add(new THREE.Vector3(0, 0.38, 0));
+  spawnGlowOrb(lifted, 0xffffff, big ? 3.8 : 2.1, big ? 0.18 : 0.14, 0.95);
+  spawnGlowOrb(lifted, color, big ? 6.8 : 3.8, big ? 0.46 : 0.3, 0.86);
+  spawnShockwave(position.clone().add(new THREE.Vector3(0, 0.22, 0)), color, radius * 0.92, big ? 0.48 : 0.34, big ? 30 : 18, 1);
+  spawnShockwave(position.clone().add(new THREE.Vector3(0, 0.24, 0)), 0xffffff, radius * 0.45, big ? 0.24 : 0.18, big ? 18 : 12, 0.5);
+  spawnBurst(position.clone().add(new THREE.Vector3(0, 0.5, 0)), color, big ? 42 : 22, big ? 8.8 : 5.8, big ? 0.7 : 0.5, big ? 0.62 : 0.4, 1.25);
+  spawnBurst(position.clone(), 0xfff0c2, big ? 18 : 8, big ? 4.8 : 2.8, 0.62, 0.3, 0.5);
+  addBlastLight(position.clone(), color, big ? 22 : 9, big ? 24 : 14, big ? 0.42 : 0.24);
   if (big) {
     game.screenShake = Math.max(game.screenShake, 0.86);
     game.boomFlash = 0.42;
@@ -2759,7 +2811,7 @@ function updateLights(dt) {
   for (let i = muzzleLights.length - 1; i >= 0; i -= 1) {
     const entry = muzzleLights[i];
     entry.life -= dt;
-    entry.light.intensity = (entry.life / entry.maxLife) * 2.2;
+    entry.light.intensity = (entry.life / entry.maxLife) * entry.intensity;
     if (entry.life <= 0) {
       scene.remove(entry.light);
       muzzleLights.splice(i, 1);
@@ -2769,7 +2821,7 @@ function updateLights(dt) {
   for (let i = blastLights.length - 1; i >= 0; i -= 1) {
     const entry = blastLights[i];
     entry.life -= dt;
-    entry.light.intensity = (entry.life / entry.maxLife) * 8;
+    entry.light.intensity = (entry.life / entry.maxLife) * entry.intensity;
     if (entry.life <= 0) {
       scene.remove(entry.light);
       blastLights.splice(i, 1);
@@ -2798,7 +2850,10 @@ function updateEffects(dt) {
     trace.life -= dt;
     const alpha = Math.max(0, trace.life / trace.maxLife);
     const progress = 1 - alpha;
-    trace.beam.material.uniforms.uAlpha.value = alpha * 0.62;
+    for (let b = 0; b < trace.beams.length; b += 1) {
+      const beam = trace.beams[b];
+      beam.material.uniforms.uAlpha.value = alpha * (b === 0 ? 0.28 : b === 1 ? 0.78 : 0.58);
+    }
     for (let j = 0; j < trace.sprites.length; j += 1) {
       const sprite = trace.sprites[j];
       const spark = trace.sparks[j];
@@ -2814,8 +2869,10 @@ function updateEffects(dt) {
     trace.ring.scale.setScalar(trace.thickness * (6.4 + progress * 13));
     if (trace.life <= 0) {
       fxGroup.remove(trace.group);
-      trace.beam.geometry.dispose();
-      trace.beam.material.dispose();
+      for (const beam of trace.beams) {
+        beam.geometry.dispose();
+        beam.material.dispose();
+      }
       for (const sprite of trace.sprites) sprite.material.dispose();
       trace.head.material.dispose();
       trace.ring.material.dispose();
@@ -2826,7 +2883,7 @@ function updateEffects(dt) {
   for (let i = shockwaves.length - 1; i >= 0; i -= 1) {
     const wave = shockwaves[i];
     wave.life -= dt;
-    wave.sprite.material.opacity = (wave.life / wave.maxLife) * 0.95;
+    wave.sprite.material.opacity = (wave.life / wave.maxLife) * (wave.baseOpacity ?? 0.95);
     const s = wave.sprite.scale.x + wave.grow * dt;
     wave.sprite.scale.set(s, s, 1);
     if (wave.life <= 0) {
