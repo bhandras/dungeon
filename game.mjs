@@ -47,6 +47,7 @@ const tmpMat = new THREE.Matrix4();
 const clock = new THREE.Clock();
 const raycaster = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const shaderTime = { value: 0 };
 
 function normalizeInputKey(key) {
   if (!key) return null;
@@ -162,20 +163,20 @@ const explorationLayer = createExplorationLayer();
 
 const floor = new THREE.Mesh(
   new THREE.PlaneGeometry(MAP_W * CELL, MAP_H * CELL),
-  new THREE.MeshStandardMaterial({
-    color: 0x22272f,
-    map: floorTexture,
-    roughness: 0.98,
-    metalness: 0.04,
-    emissive: new THREE.Color(0xf2cd92),
-    emissiveIntensity: 0.34,
-    emissiveMap: explorationLayer.texture,
-  })
+  createDungeonFloorMaterial()
 );
 floor.rotation.x = -Math.PI * 0.5;
 floor.receiveShadow = true;
 floor.position.y = WORLD_FLOOR_Y;
 worldGroup.add(floor);
+
+const floorGlow = new THREE.Mesh(
+  new THREE.PlaneGeometry(MAP_W * CELL, MAP_H * CELL),
+  createFloorGlowMaterial()
+);
+floorGlow.rotation.x = -Math.PI * 0.5;
+floorGlow.position.y = WORLD_FLOOR_Y + 0.018;
+worldGroup.add(floorGlow);
 
 const decalFloor = new THREE.Mesh(
   new THREE.PlaneGeometry(MAP_W * CELL, MAP_H * CELL),
@@ -656,6 +657,63 @@ function renderWeaponPreview(dt) {
     model.position.y = Math.sin(weaponPreview.spin * 1.3) * 0.08;
   }
   weaponPreview.renderer.render(weaponPreview.scene, weaponPreview.camera);
+}
+
+function createDungeonFloorMaterial() {
+  return new THREE.MeshStandardMaterial({
+    color: 0x22272f,
+    map: floorTexture,
+    roughness: 0.98,
+    metalness: 0.04,
+    emissive: new THREE.Color(0xf2cd92),
+    emissiveIntensity: 0.34,
+    emissiveMap: explorationLayer.texture,
+  });
+}
+
+function createFloorGlowMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: shaderTime,
+      uTintA: { value: new THREE.Color(0xffd18a) },
+      uTintB: { value: new THREE.Color(0x79ffd6) },
+      uReveal: { value: explorationLayer.texture },
+    },
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform vec3 uTintA;
+      uniform vec3 uTintB;
+      uniform sampler2D uReveal;
+      varying vec2 vUv;
+      float lineGrid(vec2 uv, float scale, float width) {
+        vec2 cell = abs(fract(uv * scale) - 0.5);
+        float d = min(cell.x, cell.y);
+        return smoothstep(width, 0.0, d);
+      }
+      void main() {
+        vec2 centered = vUv - 0.5;
+        float radius = length(centered);
+        float pulse = 0.5 + 0.5 * sin(uTime * 0.75 + radius * 24.0);
+        float grid = lineGrid(vUv + vec2(uTime * 0.006, -uTime * 0.004), 28.0, 0.02);
+        float sigil = smoothstep(0.018, 0.0, abs(sin((atan(centered.y, centered.x) * 6.0) + radius * 52.0 - uTime * 1.7))) * smoothstep(0.48, 0.05, radius);
+        vec3 revealSample = texture2D(uReveal, vUv).rgb;
+        float reveal = smoothstep(0.015, 0.22, max(max(revealSample.r, revealSample.g), revealSample.b));
+        float alpha = (grid * 0.075 + sigil * 0.13) * (0.55 + pulse * 0.45);
+        vec3 color = mix(uTintB, uTintA, pulse);
+        gl_FragColor = vec4(color, alpha * reveal);
+      }
+    `,
+  });
 }
 
 function createFloorTexture() {
@@ -1231,23 +1289,47 @@ function createPlayer() {
   const bodyMat = new THREE.MeshStandardMaterial({ color: 0x7a7f8c, roughness: 0.62, metalness: 0.18 });
   const coatMat = new THREE.MeshStandardMaterial({ color: 0x252933, roughness: 0.88, metalness: 0.02 });
   const gunMat = new THREE.MeshStandardMaterial({ color: 0x383d49, roughness: 0.55, metalness: 0.35 });
+  const trimMat = new THREE.MeshStandardMaterial({ color: 0xffd18a, emissive: 0xffa550, emissiveIntensity: 0.7, roughness: 0.35, metalness: 0.22 });
+  const lensMat = new THREE.MeshBasicMaterial({ color: 0x9dc8ff });
   const torchMat = new THREE.MeshStandardMaterial({ color: 0x3d2f1e, emissive: 0xffa550, emissiveIntensity: 0.8, roughness: 0.5, metalness: 0.25 });
 
   const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.46, 1.2, 12), coatMat);
   legs.position.y = 0.6;
+  const bootLeft = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.18, 0.54), gunMat);
+  const bootRight = bootLeft.clone();
+  bootLeft.position.set(-0.23, 0.1, -0.08);
+  bootRight.position.set(0.23, 0.1, -0.08);
   const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.58, 1.25, 14), bodyMat);
   torso.position.y = 1.55;
+  const coatPanel = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.9, 0.08), coatMat);
+  coatPanel.position.set(0, 1.5, -0.52);
+  const chestGlow = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.42, 0.08), trimMat);
+  chestGlow.position.set(0, 1.72, -0.58);
   const shoulders = new THREE.Mesh(new THREE.SphereGeometry(0.62, 16, 14), coatMat);
   shoulders.scale.set(1.2, 0.65, 1.0);
   shoulders.position.y = 2.2;
+  const armLeft = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 0.76, 10), coatMat);
+  const armRight = armLeft.clone();
+  armLeft.rotation.x = 0.78;
+  armRight.rotation.x = 0.78;
+  armLeft.position.set(-0.55, 1.85, -0.32);
+  armRight.position.set(0.55, 1.85, -0.32);
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.42, 18, 16), bodyMat);
   head.position.set(0, 2.68, 0.05);
   const hood = new THREE.Mesh(new THREE.SphereGeometry(0.48, 16, 14), coatMat);
   hood.scale.set(1.05, 0.95, 1.05);
   hood.position.set(0, 2.68, -0.04);
+  const visor = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.08, 0.06), lensMat);
+  visor.position.set(0, 2.74, -0.42);
+  const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.055, 8, 24), trimMat);
+  scarf.position.set(0, 2.34, -0.02);
+  scarf.rotation.x = Math.PI * 0.5;
   const gun = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 1.25), gunMat);
   gun.position.set(0.42, 1.8, -0.55);
   gun.rotation.x = 0.12;
+  const gunCore = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.8), trimMat);
+  gunCore.position.set(0.42, 1.91, -0.6);
+  gunCore.rotation.x = 0.12;
   const torchMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.5, 8), torchMat);
   torchMesh.rotation.z = Math.PI * 0.5;
   torchMesh.position.set(-0.36, 1.9, -0.55);
@@ -1262,7 +1344,7 @@ function createPlayer() {
   glow.position.set(-0.55, 1.9, -0.68);
   glow.scale.setScalar(0.65);
 
-  group.add(legs, torso, shoulders, head, hood, gun, torchMesh, glow);
+  group.add(legs, bootLeft, bootRight, torso, coatPanel, chestGlow, shoulders, armLeft, armRight, head, hood, visor, scarf, gun, gunCore, torchMesh, glow);
   group.traverse((obj) => {
     if (obj.isMesh) {
       obj.castShadow = true;
@@ -1284,8 +1366,9 @@ function createPlayer() {
 function createEnemy(typeKey, x, z) {
   const type = ENEMY_TYPES[typeKey];
   const group = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: type.color, roughness: 0.88, metalness: 0.03 });
-  const shellMat = new THREE.MeshStandardMaterial({ color: 0x3a3f4c, roughness: 0.65, metalness: 0.12 });
+  const bodyMat = new THREE.MeshStandardMaterial({ color: type.color, roughness: 0.86, metalness: 0.04, emissive: type.color, emissiveIntensity: 0.16 });
+  const shellMat = new THREE.MeshStandardMaterial({ color: 0x3a3f4c, roughness: 0.65, metalness: 0.12, emissive: 0x151a24, emissiveIntensity: 0.36 });
+  const spikeMat = new THREE.MeshStandardMaterial({ color: 0x5c6675, roughness: 0.58, metalness: 0.16, emissive: 0x101722, emissiveIntensity: 0.25 });
   const eyeMat = new THREE.MeshBasicMaterial({ color: type.eye });
 
   const base = new THREE.Mesh(new THREE.SphereGeometry(0.7 * type.scale, 16, 14), bodyMat);
@@ -1302,10 +1385,47 @@ function createEnemy(typeKey, x, z) {
   eyeRight.position.set(0.16 * type.scale, 1.17 * type.scale, -0.46 * type.scale);
 
   group.add(base, upper, eyeLeft, eyeRight);
+  const eyeGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: particleTexture,
+    color: type.eye,
+    transparent: true,
+    opacity: 0.58,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  }));
+  eyeGlow.position.set(0, 1.18 * type.scale, -0.52 * type.scale);
+  eyeGlow.scale.setScalar(0.72 * type.scale);
+  group.add(eyeGlow);
+
+  const legCount = typeKey === 'skitter' ? 6 : 4;
+  for (let i = 0; i < legCount; i += 1) {
+    const side = i % 2 === 0 ? -1 : 1;
+    const row = Math.floor(i / 2);
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.055 * type.scale, 0.075 * type.scale, 0.72 * type.scale, 7), shellMat);
+    leg.rotation.z = side * 0.95;
+    leg.rotation.x = 0.18;
+    leg.position.set(side * (0.54 + row * 0.06) * type.scale, 0.42 * type.scale, (-0.18 + row * 0.26) * type.scale);
+    group.add(leg);
+  }
+
+  const spineCount = typeKey === 'brute' ? 5 : 3;
+  for (let i = 0; i < spineCount; i += 1) {
+    const spine = new THREE.Mesh(new THREE.ConeGeometry(0.09 * type.scale, 0.32 * type.scale, 8), spikeMat);
+    spine.rotation.x = -0.55;
+    spine.position.set((i - (spineCount - 1) * 0.5) * 0.22 * type.scale, (1.46 + Math.sin(i) * 0.04) * type.scale, 0.02 * type.scale);
+    group.add(spine);
+  }
+
   if (typeKey === 'brute') {
     const shoulder = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.35, 0.55), shellMat);
     shoulder.position.set(0, 1.42, 0.02);
-    group.add(shoulder);
+    const hornLeft = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.48, 9), spikeMat);
+    const hornRight = hornLeft.clone();
+    hornLeft.rotation.z = -0.62;
+    hornRight.rotation.z = 0.62;
+    hornLeft.position.set(-0.36, 1.72, -0.28);
+    hornRight.position.set(0.36, 1.72, -0.28);
+    group.add(shoulder, hornLeft, hornRight);
   }
   group.traverse((obj) => {
     if (obj.isMesh) {
@@ -1483,6 +1603,43 @@ function spawnBurst(position, color, count, speed, size, life, spreadY = 0.9) {
   }
 }
 
+function createProjectileRibbonMaterial(color, alpha = 0.75) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: shaderTime,
+      uColor: { value: new THREE.Color(color) },
+      uAlpha: { value: alpha },
+      uSeed: { value: Math.random() * 20 },
+    },
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform vec3 uColor;
+      uniform float uAlpha;
+      uniform float uSeed;
+      varying vec2 vUv;
+      void main() {
+        float core = smoothstep(0.5, 0.08, abs(vUv.y - 0.5));
+        float head = smoothstep(0.0, 0.22, vUv.x) * smoothstep(1.0, 0.55, vUv.x);
+        float streak = 0.62 + 0.38 * sin(vUv.x * 28.0 - uTime * 18.0 + uSeed);
+        float edge = pow(core, 1.7) * head;
+        vec3 color = mix(vec3(1.0), uColor, 0.62) * (1.1 + streak * 0.55);
+        gl_FragColor = vec4(color, edge * uAlpha);
+      }
+    `,
+  });
+}
+
 function spawnTrace(start, end, color, thickness = 0.08, life = 0.1) {
   const delta = end.clone().sub(start);
   const distance = delta.length();
@@ -1495,6 +1652,13 @@ function spawnTrace(start, end, color, thickness = 0.08, life = 0.1) {
   const sparks = [];
   const count = clamp(Math.ceil(distance / 1.6), 4, 11);
   const group = new THREE.Group();
+  const beam = new THREE.Mesh(
+    new THREE.PlaneGeometry(Math.max(0.01, distance), thickness * 8.8),
+    createProjectileRibbonMaterial(color, 0.62)
+  );
+  beam.position.copy(start).add(end).multiplyScalar(0.5);
+  beam.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), dir.clone().normalize());
+  group.add(beam);
 
   for (let i = 0; i < count; i += 1) {
     const t = count === 1 ? 1 : i / (count - 1);
@@ -1546,7 +1710,7 @@ function spawnTrace(start, end, color, thickness = 0.08, life = 0.1) {
 
   group.add(head, ring);
   fxGroup.add(group);
-  traces.push({ group, sprites, sparks, head, ring, start: start.clone(), end: end.clone(), side, life, maxLife: life, thickness });
+  traces.push({ group, beam, sprites, sparks, head, ring, start: start.clone(), end: end.clone(), side, life, maxLife: life, thickness });
 }
 
 function spawnFlameTrail(start, end, color, density = 6) {
@@ -1807,6 +1971,8 @@ function resetGame() {
   particles.length = 0;
   for (const trace of traces) {
     fxGroup.remove(trace.group);
+    trace.beam.geometry.dispose();
+    trace.beam.material.dispose();
     for (const sprite of trace.sprites) sprite.material.dispose();
     trace.head.material.dispose();
     trace.ring.material.dispose();
@@ -2474,6 +2640,7 @@ function updateEffects(dt) {
     trace.life -= dt;
     const alpha = Math.max(0, trace.life / trace.maxLife);
     const progress = 1 - alpha;
+    trace.beam.material.uniforms.uAlpha.value = alpha * 0.62;
     for (let j = 0; j < trace.sprites.length; j += 1) {
       const sprite = trace.sprites[j];
       const spark = trace.sparks[j];
@@ -2489,6 +2656,8 @@ function updateEffects(dt) {
     trace.ring.scale.setScalar(trace.thickness * (6.4 + progress * 13));
     if (trace.life <= 0) {
       fxGroup.remove(trace.group);
+      trace.beam.geometry.dispose();
+      trace.beam.material.dispose();
       for (const sprite of trace.sprites) sprite.material.dispose();
       trace.head.material.dispose();
       trace.ring.material.dispose();
@@ -2545,6 +2714,7 @@ function animate() {
   requestAnimationFrame(animate);
   let dt = clock.getDelta();
   dt = Math.min(dt, 0.033);
+  shaderTime.value += dt;
 
   if (game.started && !game.over) {
     game.elapsed += dt;
