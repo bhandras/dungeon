@@ -346,6 +346,7 @@ const ENEMY_TYPES = {
     color: 0x16181d,
     eye: 0xff4e63,
     scale: 0.8,
+    movement: 'direct',
   },
   stalker: {
     name: 'stalker',
@@ -358,6 +359,33 @@ const ENEMY_TYPES = {
     color: 0x1a1d25,
     eye: 0xff5b74,
     scale: 1.0,
+    movement: 'direct',
+  },
+  viper: {
+    name: 'viper',
+    hp: 38,
+    speed: 6.25 * ENEMY_SPEED_SCALE,
+    damage: 11,
+    radius: 0.66,
+    attackCooldown: 0.72,
+    score: 18,
+    color: 0x172822,
+    eye: 0x79ffd6,
+    scale: 0.92,
+    movement: 'slither',
+  },
+  zigzag: {
+    name: 'zigzag',
+    hp: 44,
+    speed: 6.7 * ENEMY_SPEED_SCALE,
+    damage: 12,
+    radius: 0.7,
+    attackCooldown: 0.68,
+    score: 22,
+    color: 0x182033,
+    eye: 0xffd18a,
+    scale: 0.95,
+    movement: 'zigzag',
   },
   brute: {
     name: 'brute',
@@ -370,6 +398,7 @@ const ENEMY_TYPES = {
     color: 0x242830,
     eye: 0xff7a5c,
     scale: 1.28,
+    movement: 'direct',
   },
 };
 
@@ -960,7 +989,13 @@ function drawMinimap() {
     const tile = worldToTile(enemy.group.position.x, enemy.group.position.z);
     if (!isInsideMap(tile.tx, tile.ty)) continue;
     if (exploration.visibleFloor[tile.ty][tile.tx] <= 0.02) continue;
-    ctx.fillStyle = '#ff5f74';
+    ctx.fillStyle = enemy.typeKey === 'viper'
+      ? '#79ffd6'
+      : enemy.typeKey === 'zigzag'
+        ? '#ffd18a'
+        : enemy.typeKey === 'brute'
+          ? '#ff8a66'
+          : '#ff5f74';
     ctx.beginPath();
     ctx.arc(tile.tx * cw + cw * 0.5, tile.ty * ch + ch * 0.5, Math.max(1.5, Math.min(cw, ch) * 0.28), 0, Math.PI * 2);
     ctx.fill();
@@ -1056,6 +1091,16 @@ function rotate2(vx, vz, angle) {
   const c = Math.cos(angle);
   const s = Math.sin(angle);
   return { x: vx * c - vz * s, z: vx * s + vz * c };
+}
+
+function angleForNegativeZFacing(dirX, dirZ) {
+  return Math.atan2(-dirX, -dirZ);
+}
+
+function lerpAngle(from, to, amount) {
+  let delta = ((to - from + Math.PI) % (Math.PI * 2)) - Math.PI;
+  if (delta < -Math.PI) delta += Math.PI * 2;
+  return from + delta * amount;
 }
 
 function formatTime(seconds) {
@@ -1370,63 +1415,122 @@ function createEnemy(typeKey, x, z) {
   const shellMat = new THREE.MeshStandardMaterial({ color: 0x3a3f4c, roughness: 0.65, metalness: 0.12, emissive: 0x151a24, emissiveIntensity: 0.36 });
   const spikeMat = new THREE.MeshStandardMaterial({ color: 0x5c6675, roughness: 0.58, metalness: 0.16, emissive: 0x101722, emissiveIntensity: 0.25 });
   const eyeMat = new THREE.MeshBasicMaterial({ color: type.eye });
+  const animatedParts = { segments: [], fins: [], wings: [] };
 
-  const base = new THREE.Mesh(new THREE.SphereGeometry(0.7 * type.scale, 16, 14), bodyMat);
-  base.scale.set(1.18, typeKey === 'skitter' ? 0.58 : 0.82, 1.0);
-  base.position.y = 0.72 * type.scale;
+  if (typeKey === 'viper') {
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.42 * type.scale, 16, 14), bodyMat);
+    head.scale.set(1.05, 0.72, 1.38);
+    head.position.set(0, 0.66 * type.scale, -0.46 * type.scale);
+    const crest = new THREE.Mesh(new THREE.ConeGeometry(0.16 * type.scale, 0.5 * type.scale, 9), spikeMat);
+    crest.rotation.x = -0.75;
+    crest.position.set(0, 1.02 * type.scale, -0.48 * type.scale);
+    const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.54 * type.scale, 0.12 * type.scale, 0.34 * type.scale), shellMat);
+    jaw.position.set(0, 0.54 * type.scale, -0.72 * type.scale);
 
-  const upper = new THREE.Mesh(new THREE.SphereGeometry(0.42 * type.scale, 14, 12), shellMat);
-  upper.scale.set(1.0, 0.88, 1.1);
-  upper.position.set(0, 1.15 * type.scale, -0.08);
+    const eyeLeft = new THREE.Mesh(new THREE.SphereGeometry(0.075 * type.scale, 10, 10), eyeMat);
+    const eyeRight = eyeLeft.clone();
+    eyeLeft.position.set(-0.16 * type.scale, 0.78 * type.scale, -0.84 * type.scale);
+    eyeRight.position.set(0.16 * type.scale, 0.78 * type.scale, -0.84 * type.scale);
+    group.add(head, crest, jaw, eyeLeft, eyeRight);
 
-  const eyeLeft = new THREE.Mesh(new THREE.SphereGeometry(0.1 * type.scale, 10, 10), eyeMat);
-  const eyeRight = eyeLeft.clone();
-  eyeLeft.position.set(-0.16 * type.scale, 1.17 * type.scale, -0.46 * type.scale);
-  eyeRight.position.set(0.16 * type.scale, 1.17 * type.scale, -0.46 * type.scale);
+    for (let i = 0; i < 7; i += 1) {
+      const segmentScale = 1 - i * 0.055;
+      const segment = new THREE.Mesh(new THREE.SphereGeometry(0.36 * type.scale * segmentScale, 14, 12), i % 2 ? shellMat : bodyMat);
+      segment.scale.set(1.0, 0.52, 1.42);
+      segment.position.set(0, 0.48 * type.scale, (0.02 + i * 0.38) * type.scale);
+      group.add(segment);
+      animatedParts.segments.push(segment);
 
-  group.add(base, upper, eyeLeft, eyeRight);
+      if (i < 5) {
+        const finLeft = new THREE.Mesh(new THREE.ConeGeometry(0.07 * type.scale, 0.32 * type.scale, 7), spikeMat);
+        const finRight = finLeft.clone();
+        finLeft.rotation.z = -0.92;
+        finRight.rotation.z = 0.92;
+        finLeft.position.set(-0.34 * type.scale * segmentScale, 0.7 * type.scale, segment.position.z - 0.02 * type.scale);
+        finRight.position.set(0.34 * type.scale * segmentScale, 0.7 * type.scale, segment.position.z - 0.02 * type.scale);
+        group.add(finLeft, finRight);
+        animatedParts.fins.push(finLeft, finRight);
+      }
+    }
+
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.24 * type.scale, 0.72 * type.scale, 10), bodyMat);
+    tail.rotation.x = Math.PI * 0.5;
+    tail.position.set(0, 0.44 * type.scale, 2.85 * type.scale);
+    group.add(tail);
+    animatedParts.segments.push(tail);
+  } else {
+    const base = new THREE.Mesh(new THREE.SphereGeometry(0.7 * type.scale, 16, 14), bodyMat);
+    base.scale.set(typeKey === 'zigzag' ? 0.88 : 1.18, typeKey === 'skitter' ? 0.58 : 0.82, typeKey === 'zigzag' ? 1.34 : 1.0);
+    base.position.y = 0.72 * type.scale;
+
+    const upper = new THREE.Mesh(new THREE.SphereGeometry(0.42 * type.scale, 14, 12), shellMat);
+    upper.scale.set(typeKey === 'zigzag' ? 0.74 : 1.0, 0.88, typeKey === 'zigzag' ? 1.38 : 1.1);
+    upper.position.set(0, 1.15 * type.scale, -0.08);
+
+    const eyeLeft = new THREE.Mesh(new THREE.SphereGeometry(0.1 * type.scale, 10, 10), eyeMat);
+    const eyeRight = eyeLeft.clone();
+    eyeLeft.position.set(-0.16 * type.scale, 1.17 * type.scale, -0.46 * type.scale);
+    eyeRight.position.set(0.16 * type.scale, 1.17 * type.scale, -0.46 * type.scale);
+
+    group.add(base, upper, eyeLeft, eyeRight);
+
+    const legCount = typeKey === 'skitter' ? 6 : 4;
+    for (let i = 0; i < legCount; i += 1) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const row = Math.floor(i / 2);
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.055 * type.scale, 0.075 * type.scale, 0.72 * type.scale, 7), shellMat);
+      leg.rotation.z = side * 0.95;
+      leg.rotation.x = 0.18;
+      leg.position.set(side * (0.54 + row * 0.06) * type.scale, 0.42 * type.scale, (-0.18 + row * 0.26) * type.scale);
+      group.add(leg);
+    }
+
+    const spineCount = typeKey === 'brute' ? 5 : 3;
+    for (let i = 0; i < spineCount; i += 1) {
+      const spine = new THREE.Mesh(new THREE.ConeGeometry(0.09 * type.scale, 0.32 * type.scale, 8), spikeMat);
+      spine.rotation.x = -0.55;
+      spine.position.set((i - (spineCount - 1) * 0.5) * 0.22 * type.scale, (1.46 + Math.sin(i) * 0.04) * type.scale, 0.02 * type.scale);
+      group.add(spine);
+    }
+
+    if (typeKey === 'brute') {
+      const shoulder = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.35, 0.55), shellMat);
+      shoulder.position.set(0, 1.42, 0.02);
+      const hornLeft = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.48, 9), spikeMat);
+      const hornRight = hornLeft.clone();
+      hornLeft.rotation.z = -0.62;
+      hornRight.rotation.z = 0.62;
+      hornLeft.position.set(-0.36, 1.72, -0.28);
+      hornRight.position.set(0.36, 1.72, -0.28);
+      group.add(shoulder, hornLeft, hornRight);
+    }
+
+    if (typeKey === 'zigzag') {
+      const bladeMat = new THREE.MeshStandardMaterial({ color: 0x52637d, roughness: 0.5, metalness: 0.22, emissive: 0x1a3355, emissiveIntensity: 0.52 });
+      for (let i = 0; i < 2; i += 1) {
+        const side = i === 0 ? -1 : 1;
+        const wing = new THREE.Mesh(new THREE.ConeGeometry(0.16 * type.scale, 0.9 * type.scale, 4), bladeMat);
+        wing.rotation.z = side * 0.88;
+        wing.rotation.x = 0.22;
+        wing.position.set(side * 0.58 * type.scale, 0.86 * type.scale, -0.02 * type.scale);
+        group.add(wing);
+        animatedParts.wings.push(wing);
+      }
+    }
+  }
+
   const eyeGlow = new THREE.Sprite(new THREE.SpriteMaterial({
     map: particleTexture,
     color: type.eye,
     transparent: true,
-    opacity: 0.58,
+    opacity: typeKey === 'viper' ? 0.68 : 0.58,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
   }));
-  eyeGlow.position.set(0, 1.18 * type.scale, -0.52 * type.scale);
-  eyeGlow.scale.setScalar(0.72 * type.scale);
+  eyeGlow.position.set(0, typeKey === 'viper' ? 0.8 * type.scale : 1.18 * type.scale, typeKey === 'viper' ? -0.92 * type.scale : -0.52 * type.scale);
+  eyeGlow.scale.setScalar((typeKey === 'viper' ? 0.55 : 0.72) * type.scale);
   group.add(eyeGlow);
 
-  const legCount = typeKey === 'skitter' ? 6 : 4;
-  for (let i = 0; i < legCount; i += 1) {
-    const side = i % 2 === 0 ? -1 : 1;
-    const row = Math.floor(i / 2);
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.055 * type.scale, 0.075 * type.scale, 0.72 * type.scale, 7), shellMat);
-    leg.rotation.z = side * 0.95;
-    leg.rotation.x = 0.18;
-    leg.position.set(side * (0.54 + row * 0.06) * type.scale, 0.42 * type.scale, (-0.18 + row * 0.26) * type.scale);
-    group.add(leg);
-  }
-
-  const spineCount = typeKey === 'brute' ? 5 : 3;
-  for (let i = 0; i < spineCount; i += 1) {
-    const spine = new THREE.Mesh(new THREE.ConeGeometry(0.09 * type.scale, 0.32 * type.scale, 8), spikeMat);
-    spine.rotation.x = -0.55;
-    spine.position.set((i - (spineCount - 1) * 0.5) * 0.22 * type.scale, (1.46 + Math.sin(i) * 0.04) * type.scale, 0.02 * type.scale);
-    group.add(spine);
-  }
-
-  if (typeKey === 'brute') {
-    const shoulder = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.35, 0.55), shellMat);
-    shoulder.position.set(0, 1.42, 0.02);
-    const hornLeft = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.48, 9), spikeMat);
-    const hornRight = hornLeft.clone();
-    hornLeft.rotation.z = -0.62;
-    hornRight.rotation.z = 0.62;
-    hornLeft.position.set(-0.36, 1.72, -0.28);
-    hornRight.position.set(0.36, 1.72, -0.28);
-    group.add(shoulder, hornLeft, hornRight);
-  }
   group.traverse((obj) => {
     if (obj.isMesh) {
       obj.castShadow = true;
@@ -1448,6 +1552,8 @@ function createEnemy(typeKey, x, z) {
     wobble: Math.random() * Math.PI * 2,
     spawnRise: 1,
     hitFlash: 0,
+    animatedParts,
+    facingY: 0,
   };
 }
 
@@ -1924,9 +2030,11 @@ function spawnEnemyPack(count, forceType = null) {
     let type = forceType;
     if (!type) {
       const roll = Math.random();
-      if (difficulty > 1.8 && roll > 0.82) type = 'brute';
-      else if (difficulty > 1.2 && roll > 0.42) type = 'stalker';
-      else type = Math.random() < 0.45 ? 'skitter' : 'stalker';
+      if (difficulty > 1.8 && roll > 0.86) type = 'brute';
+      else if (difficulty > 1.35 && roll > 0.68) type = 'zigzag';
+      else if (difficulty > 1.12 && roll > 0.46) type = 'viper';
+      else if (difficulty > 1.2 && roll > 0.24) type = 'stalker';
+      else type = Math.random() < 0.5 ? 'skitter' : 'viper';
     }
     const enemy = createEnemy(type, pos.x, pos.z);
     enemy.group.position.y = -1.2;
@@ -2433,6 +2541,37 @@ function updatePickups(dt) {
   }
 }
 
+function animateEnemyParts(enemy) {
+  const scale = enemy.type.scale;
+  if (enemy.animatedParts.segments.length) {
+    for (let i = 0; i < enemy.animatedParts.segments.length; i += 1) {
+      const segment = enemy.animatedParts.segments[i];
+      if (segment.userData.baseY === undefined) segment.userData.baseY = segment.position.y;
+      const wave = Math.sin(enemy.wobble * 3.8 - i * 0.72);
+      segment.position.x = wave * 0.16 * scale * (1 - i * 0.045);
+      segment.position.y = segment.userData.baseY + Math.cos(enemy.wobble * 4.1 - i * 0.55) * 0.025 * scale;
+      segment.rotation.y = wave * 0.28;
+    }
+  }
+
+  if (enemy.animatedParts.fins.length) {
+    for (let i = 0; i < enemy.animatedParts.fins.length; i += 1) {
+      const fin = enemy.animatedParts.fins[i];
+      const side = fin.position.x < 0 ? -1 : 1;
+      fin.rotation.z = side * (0.8 + Math.sin(enemy.wobble * 5.4 + i) * 0.18);
+    }
+  }
+
+  if (enemy.animatedParts.wings.length) {
+    for (let i = 0; i < enemy.animatedParts.wings.length; i += 1) {
+      const wing = enemy.animatedParts.wings[i];
+      const side = wing.position.x < 0 ? -1 : 1;
+      wing.rotation.z = side * (0.82 + Math.sin(enemy.wobble * 8.0) * 0.24);
+      wing.rotation.y = Math.sin(enemy.wobble * 5.8 + i) * 0.22;
+    }
+  }
+}
+
 function updateEnemies(dt) {
   const playerPos = player.group.position;
   const enemySpeedMultiplier = getEnemySpeedMultiplier();
@@ -2451,6 +2590,16 @@ function updateEnemies(dt) {
 
     let steerX = nx;
     let steerZ = nz;
+
+    if (enemy.type.movement === 'slither') {
+      const sway = Math.sin(enemy.wobble * 2.7 + dist * 0.17) * 0.68;
+      steerX = nx * 0.86 + -nz * sway;
+      steerZ = nz * 0.86 + nx * sway;
+    } else if (enemy.type.movement === 'zigzag') {
+      const sideStep = Math.sin(enemy.wobble * 3.9) * (dist > 4.2 ? 0.92 : 0.36);
+      steerX = nx * 0.72 + -nz * sideStep;
+      steerZ = nz * 0.72 + nx * sideStep;
+    }
 
     for (const other of enemies) {
       if (other === enemy) continue;
@@ -2495,7 +2644,10 @@ function updateEnemies(dt) {
 
     const bob = Math.sin(enemy.wobble * 6) * 0.08 * enemy.type.scale;
     enemy.group.position.y = bob - enemy.spawnRise * 1.1;
-    enemy.group.rotation.y = Math.atan2(chosenX, chosenZ);
+    const targetFacing = angleForNegativeZFacing(nx, nz);
+    enemy.facingY = lerpAngle(enemy.facingY, targetFacing, clamp(dt * 9, 0, 1));
+    enemy.group.rotation.y = enemy.facingY;
+    animateEnemyParts(enemy);
     const pulse = 1 + enemy.hitFlash * 0.35;
     enemy.group.scale.setScalar(pulse);
 
@@ -2548,7 +2700,8 @@ function updateSpawns(dt) {
   game.swarmTimer -= dt;
   if (game.swarmTimer <= 0) {
     const swarmSize = clamp(7 + Math.floor(game.elapsed / 18) + Math.floor(Math.random() * 4), 7, 18);
-    spawnEnemyPack(swarmSize, Math.random() < 0.4 ? 'stalker' : 'skitter');
+    const swarmTypes = ['skitter', 'viper', 'zigzag', 'stalker'];
+    spawnEnemyPack(swarmSize, swarmTypes[Math.floor(Math.random() * swarmTypes.length)]);
     showMessage(`Swarm incoming x${swarmSize}`);
     audio.swarm();
     game.swarmTimer = 16 - Math.min(7.5, game.elapsed * 0.04) + Math.random() * 5;
