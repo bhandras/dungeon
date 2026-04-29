@@ -38,6 +38,7 @@ const FLOOR_LIGHT_TEXEL_SCALE = 8;
 const ENEMY_SPEED_SCALE = 0.46;
 
 const keys = new Map();
+const handledInputEvents = new WeakSet();
 const mouse = { x: window.innerWidth * 0.5, y: window.innerHeight * 0.5, down: false, right: false, ndc: new THREE.Vector2() };
 const tmpVec3 = new THREE.Vector3();
 const tmpVec3B = new THREE.Vector3();
@@ -127,7 +128,7 @@ const hemi = new THREE.HemisphereLight(0x3a4657, 0x05060a, 0.3);
 scene.add(ambient, hemi);
 
 const torchTarget = new THREE.Object3D();
-const torch = new THREE.SpotLight(0xffd39d, 88, 42, Math.PI * 0.3, 0.7, 1.4);
+const torch = new THREE.SpotLight(0xffd39d, 112, 48, Math.PI * 0.23, 0.66, 1.32);
 torch.castShadow = true;
 torch.shadow.mapSize.set(1024, 1024);
 torch.shadow.bias = -0.0004;
@@ -139,8 +140,8 @@ scene.add(torch, torchTarget);
 torch.target = torchTarget;
 
 const lanternTarget = new THREE.Object3D();
-const lantern = new THREE.SpotLight(0xffc690, 24, 30, Math.PI * 0.52, 0.82, 1.7);
-lantern.castShadow = true;
+const lantern = new THREE.SpotLight(0xffc690, 12, 20, Math.PI * 0.42, 0.88, 1.85);
+lantern.castShadow = false;
 lantern.shadow.mapSize.set(768, 768);
 lantern.shadow.bias = -0.00035;
 lantern.shadow.normalBias = 0.045;
@@ -150,7 +151,7 @@ lantern.shadow.focus = 0.78;
 scene.add(lantern, lanternTarget);
 lantern.target = lanternTarget;
 
-const haloLight = new THREE.PointLight(0xffb55f, 2.9, 14, 2.1);
+const haloLight = new THREE.PointLight(0xffb55f, 0.95, 8.5, 2.25);
 scene.add(haloLight);
 
 const muzzleLights = [];
@@ -1389,9 +1390,8 @@ function createPlayer() {
   }));
   glow.position.set(-0.55, 1.9, -0.68);
   glow.scale.setScalar(0.65);
-  const contactShadow = createContactShadow(0.95, 0.22);
 
-  group.add(contactShadow, legs, bootLeft, bootRight, torso, coatPanel, chestGlow, shoulders, armLeft, armRight, head, hood, visor, scarf, gun, gunCore, torchMesh, glow);
+  group.add(legs, bootLeft, bootRight, torso, coatPanel, chestGlow, shoulders, armLeft, armRight, head, hood, visor, scarf, gun, gunCore, torchMesh, glow);
   group.traverse((obj) => {
     if (obj.isMesh) {
       obj.castShadow = false;
@@ -1410,24 +1410,6 @@ function createPlayer() {
   };
 }
 
-function createContactShadow(radius = 0.8, opacity = 0.2) {
-  const shadow = new THREE.Mesh(
-    new THREE.CircleGeometry(radius, 24),
-    new THREE.MeshBasicMaterial({
-      color: 0x000000,
-      transparent: true,
-      opacity,
-      depthWrite: false,
-    })
-  );
-  shadow.rotation.x = -Math.PI * 0.5;
-  shadow.position.y = 0.026;
-  shadow.renderOrder = -1;
-  shadow.receiveShadow = false;
-  shadow.castShadow = false;
-  return shadow;
-}
-
 function createEnemy(typeKey, x, z) {
   const type = ENEMY_TYPES[typeKey];
   const group = new THREE.Group();
@@ -1436,7 +1418,6 @@ function createEnemy(typeKey, x, z) {
   const spikeMat = new THREE.MeshStandardMaterial({ color: 0x5c6675, roughness: 0.58, metalness: 0.16, emissive: 0x101722, emissiveIntensity: 0.25 });
   const eyeMat = new THREE.MeshBasicMaterial({ color: type.eye });
   const animatedParts = { segments: [], fins: [], wings: [] };
-  group.add(createContactShadow(type.radius * 1.08, 0.2));
 
   if (typeKey === 'viper') {
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.42 * type.scale, 16, 14), bodyMat);
@@ -2059,6 +2040,15 @@ function stepRayToWall(origin, dir, maxDist) {
   return maxDist;
 }
 
+function hasLineOfSight(origin, target, padding = 0.18) {
+  const delta = target.clone().sub(origin);
+  delta.y = 0;
+  const dist = delta.length();
+  if (dist <= 0.001) return true;
+  const dir = delta.multiplyScalar(1 / dist);
+  return stepRayToWall(origin, dir, dist + padding) + padding >= dist;
+}
+
 function pickSpawnTile(minDist = 20, maxDist = 42) {
   const px = player.group.position.x;
   const pz = player.group.position.z;
@@ -2180,14 +2170,17 @@ function switchWeapon(key) {
 function cycleWeapon(direction = 1) {
   const startIndex = WEAPON_ORDER.indexOf(playerState.currentWeapon);
   if (startIndex < 0) return;
+  let found = false;
   for (let step = 1; step <= WEAPON_ORDER.length; step += 1) {
     const index = (startIndex + direction * step + WEAPON_ORDER.length) % WEAPON_ORDER.length;
     const key = WEAPON_ORDER[index];
     if (!playerState.unlocked[key]) continue;
     if (WEAPONS[key].ammoLabel !== '∞' && playerState.ammo[key] <= 0) continue;
     switchWeapon(key);
+    found = true;
     break;
   }
+  if (!found) showMessage('No alternate weapon ready');
 }
 
 function grantWeapon(key, ammoAmount) {
@@ -2290,15 +2283,17 @@ function fireNovaWeapon(weapon, muzzle) {
   const origin = player.group.position.clone().add(new THREE.Vector3(0, 0.25, 0));
   spawnGlowOrb(origin.clone().add(new THREE.Vector3(0, 0.32, 0)), 0xffffff, 2.8, 0.18, 0.95);
   spawnGlowOrb(origin.clone().add(new THREE.Vector3(0, 0.24, 0)), weapon.tracerColor, 5.4, 0.36, 0.78);
-  spawnShockwave(origin.clone(), weapon.tracerColor, weapon.range * 0.5, 0.42, 24, 1);
-  spawnShockwave(origin.clone().add(new THREE.Vector3(0, 0.03, 0)), 0xffffff, weapon.range * 0.24, 0.24, 16, 0.5);
+  spawnShockwave(origin.clone(), weapon.tracerColor, Math.min(5.8, weapon.range * 0.28), 0.42, 18, 1);
+  spawnShockwave(origin.clone().add(new THREE.Vector3(0, 0.03, 0)), 0xffffff, Math.min(3.2, weapon.range * 0.16), 0.24, 12, 0.5);
   spawnBurst(origin.clone().add(new THREE.Vector3(0, 0.1, 0)), weapon.tracerColor, 30, 6.5, 0.48, 0.42, 0.25);
   addBlastLight(origin.clone(), weapon.tracerColor, 16, weapon.range * 1.45, 0.22);
 
   for (let i = 0; i < 26; i += 1) {
     const angle = (i / 26) * Math.PI * 2;
     const dir = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
-    const end = origin.clone().addScaledVector(dir, weapon.range * (0.86 + Math.random() * 0.16));
+    const reach = weapon.range * (0.86 + Math.random() * 0.16);
+    const wallLimitedReach = stepRayToWall(origin, dir, reach);
+    const end = origin.clone().addScaledVector(dir, wallLimitedReach);
     spawnTrace(origin, end, weapon.tracerColor, 0.14, 0.2);
   }
 
@@ -2306,6 +2301,7 @@ function fireNovaWeapon(weapon, muzzle) {
     const point = enemy.group.position.clone().add(new THREE.Vector3(0, 1, 0));
     const dist = point.distanceTo(origin);
     if (dist > weapon.range) continue;
+    if (!hasLineOfSight(origin, point, 0.28)) continue;
     const scale = 1 - dist / weapon.range;
     spawnSpellImpact(point, weapon.tracerColor, 0.65 + scale * 0.85, 0xffffff);
     damageEnemy(enemy, weapon.damage * (0.55 + scale * 0.75), point, weapon);
@@ -2802,31 +2798,31 @@ function updateLights(dt) {
   const sideX = -player.aimDir.y;
   const sideZ = player.aimDir.x;
   torch.position.set(
-    player.group.position.x - player.aimDir.x * 1.35 - sideX * 0.46,
-    3.25,
-    player.group.position.z - player.aimDir.y * 1.35 - sideZ * 0.46
+    player.group.position.x - player.aimDir.x * 0.55 - sideX * 0.18,
+    3.05,
+    player.group.position.z - player.aimDir.y * 0.55 - sideZ * 0.18
   );
   torchTarget.position.set(
-    player.group.position.x + player.aimDir.x * 12.8 + sideX * 0.18,
-    0.5,
-    player.group.position.z + player.aimDir.y * 12.8 + sideZ * 0.18
+    player.group.position.x + player.aimDir.x * 15.5 + sideX * 0.08,
+    0.38,
+    player.group.position.z + player.aimDir.y * 15.5 + sideZ * 0.08
   );
-  torch.intensity = 88 + flicker * 3.2;
+  torch.intensity = 112 + flicker * 3.6;
 
   lantern.position.set(
-    player.group.position.x - player.aimDir.x * 2.2 + sideX * 1.15,
-    4.35,
-    player.group.position.z - player.aimDir.y * 2.2 + sideZ * 1.15
+    player.group.position.x - player.aimDir.x * 0.2 + sideX * 0.55,
+    3.8,
+    player.group.position.z - player.aimDir.y * 0.2 + sideZ * 0.55
   );
   lanternTarget.position.set(
-    player.group.position.x + player.aimDir.x * 4.8,
+    player.group.position.x + player.aimDir.x * 5.8,
     0.4,
-    player.group.position.z + player.aimDir.y * 4.8
+    player.group.position.z + player.aimDir.y * 5.8
   );
-  lantern.intensity = 24 + flicker * 1.15;
+  lantern.intensity = 12 + flicker * 0.65;
 
   haloLight.position.set(player.group.position.x, 2.2, player.group.position.z);
-  haloLight.intensity = 2.55 + flicker * 0.1;
+  haloLight.intensity = 0.95 + flicker * 0.04;
 
   for (let i = muzzleLights.length - 1; i >= 0; i -= 1) {
     const entry = muzzleLights[i];
@@ -2986,6 +2982,8 @@ function beginGame() {
 }
 
 function handleKeyChange(event, pressed) {
+  if (handledInputEvents.has(event)) return;
+  handledInputEvents.add(event);
   setInputState(event, pressed);
 
   if (eventMatchesInput(event, 'KeyW', 'w', 'KeyA', 'a', 'KeyS', 's', 'KeyD', 'd', 'Space', 'space', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight')) {
@@ -3001,6 +2999,7 @@ function handleKeyChange(event, pressed) {
   }
   if (eventMatchesInput(event, 'KeyQ', 'q')) {
     event.preventDefault();
+    if (event.repeat) return;
     cycleWeapon(1);
   }
   if (eventMatchesInput(event, 'Digit2', '2')) {
