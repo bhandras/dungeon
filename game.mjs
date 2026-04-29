@@ -134,7 +134,7 @@ const hemi = new THREE.HemisphereLight(0x3a4657, 0x05060a, 0.3);
 scene.add(ambient, hemi);
 
 const torchTarget = new THREE.Object3D();
-const torch = new THREE.SpotLight(0xffd39d, 112, 48, Math.PI * 0.23, 0.66, 1.32);
+const torch = new THREE.SpotLight(0xffd39d, 74, 72, Math.PI * 0.27, 0.78, 1.12);
 torch.castShadow = true;
 torch.shadow.mapSize.set(1024, 1024);
 torch.shadow.bias = -0.0004;
@@ -791,14 +791,14 @@ function createTorchConeMaterial() {
         vec2 dir = dist > 0.001 ? toPixel / dist : uAim;
         vec2 aim = normalize(uAim);
         float forward = dot(dir, aim);
-        float cone = smoothstep(0.52, 0.96, forward) * smoothstep(38.0, 2.0, dist);
-        float hotCore = smoothstep(0.9, 1.0, forward) * smoothstep(26.0, 0.0, dist);
-        float sideFeather = smoothstep(0.08, 0.72, forward) * smoothstep(18.0, 0.0, dist) * 0.24;
-        float rearSpill = smoothstep(9.0, 0.0, dist) * 0.12;
+        float cone = smoothstep(0.42, 0.94, forward) * smoothstep(58.0, 5.0, dist);
+        float hotCore = smoothstep(0.88, 1.0, forward) * smoothstep(34.0, 3.0, dist);
+        float sideFeather = smoothstep(0.02, 0.62, forward) * smoothstep(24.0, 0.0, dist) * 0.16;
+        float rearSpill = smoothstep(9.0, 0.0, dist) * 0.08;
         float pulse = 0.9 + sin(uTime * 17.0 + dist * 0.24) * 0.04;
         vec3 revealSample = texture2D(uReveal, vUv).rgb;
         float reveal = smoothstep(0.01, 0.16, max(max(revealSample.r, revealSample.g), revealSample.b));
-        float alpha = (cone * 0.26 + hotCore * 0.18 + sideFeather + rearSpill) * reveal * pulse;
+        float alpha = (cone * 0.18 + hotCore * 0.08 + sideFeather + rearSpill) * reveal * pulse;
         vec3 color = mix(vec3(1.0, 0.55, 0.18), vec3(1.0, 0.86, 0.48), hotCore);
         gl_FragColor = vec4(color, alpha);
       }
@@ -1114,12 +1114,12 @@ function updateExploration(dt, force = false) {
   }
 
   const forward = new THREE.Vector2(player.aimDir.x, player.aimDir.y);
-  for (let i = 1; i <= 12; i += 1) {
+  for (let i = 1; i <= 18; i += 1) {
     const sample = origin.clone().add(new THREE.Vector3(forward.x * i * 1.75, 0, forward.y * i * 1.75));
     const targetTile = worldToTile(sample.x, sample.z);
     if (!isInsideMap(targetTile.tx, targetTile.ty)) break;
     if (!canSeeWorldPoint(origin, tileToWorld(targetTile.tx, targetTile.ty), CELL * 0.6)) break;
-    markTileVisible(targetTile.tx, targetTile.ty, clamp(1 - i / 14, 0.22, 0.95));
+    markTileVisible(targetTile.tx, targetTile.ty, clamp(1 - i / 21, 0.18, 0.86));
     if (dungeon.grid[targetTile.ty][targetTile.tx] !== 0) break;
   }
 
@@ -2864,11 +2864,11 @@ function updateLights(dt) {
     player.group.position.z - player.aimDir.y * 0.55 - sideZ * 0.18
   );
   torchTarget.position.set(
-    player.group.position.x + player.aimDir.x * 15.5 + sideX * 0.08,
+    player.group.position.x + player.aimDir.x * 23 + sideX * 0.08,
     0.38,
-    player.group.position.z + player.aimDir.y * 15.5 + sideZ * 0.08
+    player.group.position.z + player.aimDir.y * 23 + sideZ * 0.08
   );
-  torch.intensity = 112 + flicker * 3.6;
+  torch.intensity = 74 + flicker * 2.2;
 
   lantern.position.set(
     player.group.position.x - player.aimDir.x * 0.2 + sideX * 0.55,
