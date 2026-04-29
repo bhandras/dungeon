@@ -35,7 +35,7 @@ const WORLD_FLOOR_Y = 0;
 const FLOOR_REPEAT = 18;
 const VISION_RADIUS_TILES = 11;
 const FLOOR_LIGHT_TEXEL_SCALE = 8;
-const ENEMY_SPEED_SCALE = 0.62;
+const ENEMY_SPEED_SCALE = 0.46;
 
 const keys = new Map();
 const mouse = { x: window.innerWidth * 0.5, y: window.innerHeight * 0.5, down: false, right: false, ndc: new THREE.Vector2() };
@@ -227,11 +227,11 @@ const WEAPONS = {
   carbine: {
     name: 'Blackout Carbine',
     ammoLabel: '∞',
-    fireRate: 9.2,
-    damage: 8,
-    spread: 0.14,
-    pellets: 4,
-    range: 30,
+    fireRate: 10.6,
+    damage: 9.5,
+    spread: 0.16,
+    pellets: 5,
+    range: 34,
     recoil: 0.16,
     shake: 0.12,
     tracerColor: 0xffd18a,
@@ -331,6 +331,7 @@ const playerState = {
   },
   fireCooldown: 0,
   throwCooldown: 0,
+  hurtCooldown: 0,
   hurtFlash: 0,
 };
 
@@ -339,9 +340,9 @@ const ENEMY_TYPES = {
     name: 'skitter',
     hp: 24,
     speed: 7.6 * ENEMY_SPEED_SCALE,
-    damage: 8,
+    damage: 6,
     radius: 0.56,
-    attackCooldown: 0.62,
+    attackCooldown: 0.85,
     score: 10,
     color: 0x16181d,
     eye: 0xff4e63,
@@ -352,9 +353,9 @@ const ENEMY_TYPES = {
     name: 'stalker',
     hp: 52,
     speed: 5.15 * ENEMY_SPEED_SCALE,
-    damage: 13,
+    damage: 9,
     radius: 0.82,
-    attackCooldown: 0.85,
+    attackCooldown: 1.05,
     score: 20,
     color: 0x1a1d25,
     eye: 0xff5b74,
@@ -365,9 +366,9 @@ const ENEMY_TYPES = {
     name: 'viper',
     hp: 38,
     speed: 6.25 * ENEMY_SPEED_SCALE,
-    damage: 11,
+    damage: 8,
     radius: 0.66,
-    attackCooldown: 0.72,
+    attackCooldown: 0.95,
     score: 18,
     color: 0x172822,
     eye: 0x79ffd6,
@@ -378,9 +379,9 @@ const ENEMY_TYPES = {
     name: 'zigzag',
     hp: 44,
     speed: 6.7 * ENEMY_SPEED_SCALE,
-    damage: 12,
+    damage: 8,
     radius: 0.7,
-    attackCooldown: 0.68,
+    attackCooldown: 0.92,
     score: 22,
     color: 0x182033,
     eye: 0xffd18a,
@@ -391,9 +392,9 @@ const ENEMY_TYPES = {
     name: 'brute',
     hp: 120,
     speed: 3.45 * ENEMY_SPEED_SCALE,
-    damage: 20,
+    damage: 15,
     radius: 1.08,
-    attackCooldown: 1.0,
+    attackCooldown: 1.18,
     score: 45,
     color: 0x242830,
     eye: 0xff7a5c,
@@ -1117,7 +1118,7 @@ function showMessage(text, duration = 1.65) {
 }
 
 function getEnemySpeedMultiplier() {
-  return 1 + Math.min(0.22, game.elapsed * 0.0008);
+  return 1 + Math.min(0.16, game.elapsed * 0.00045);
 }
 
 function generateDungeon(seed) {
@@ -2049,7 +2050,7 @@ function resetGame() {
   game.score = 0;
   game.kills = 0;
   game.spawnAccumulator = 0;
-  game.swarmTimer = 12 + Math.random() * 4;
+  game.swarmTimer = 18 + Math.random() * 7;
   game.screenShake = 0;
   game.boomFlash = 0;
   game.spawnFlash = 0;
@@ -2058,6 +2059,7 @@ function resetGame() {
   playerState.currentWeapon = 'carbine';
   playerState.fireCooldown = 0;
   playerState.throwCooldown = 0;
+  playerState.hurtCooldown = 0;
   playerState.hurtFlash = 0;
   playerState.unlocked.shotgun = false;
   playerState.unlocked.flamethrower = false;
@@ -2101,7 +2103,7 @@ function resetGame() {
   player.aimDir.set(1, 0);
   resetExploration();
 
-  spawnEnemyPack(7);
+  spawnEnemyPack(4);
   createPickup('health', start.x + 4, start.z + 3);
   createPickup('ammo', start.x - 4, start.z + 2);
   createPickup('grenade', start.x + 1.5, start.z - 4);
@@ -2157,7 +2159,9 @@ function updateHud() {
 
 function damagePlayer(amount, sourcePos = null) {
   if (game.over) return;
+  if (playerState.hurtCooldown > 0) return;
   playerState.health = Math.max(0, playerState.health - amount);
+  playerState.hurtCooldown = 0.34;
   playerState.hurtFlash = 0.6;
   damageFlashEl.style.opacity = '1';
   game.screenShake = Math.max(game.screenShake, 0.32);
@@ -2689,22 +2693,23 @@ function updatePlayer(dt) {
 function updateSpawns(dt) {
   if (game.over) return;
   const difficulty = 1 + game.elapsed * 0.04;
-  game.spawnAccumulator += dt * (0.7 + difficulty * 0.55);
+  game.spawnAccumulator += dt * (0.42 + difficulty * 0.35);
   const chunk = 1 + Math.floor(game.elapsed / 18);
   while (game.spawnAccumulator >= 1) {
     game.spawnAccumulator -= 1;
-    const packSize = Math.random() < 0.18 ? 2 : 1;
+    const packChance = clamp(0.08 + game.elapsed * 0.003, 0.08, 0.2);
+    const packSize = Math.random() < packChance ? 2 : 1;
     spawnEnemyPack(packSize);
   }
 
   game.swarmTimer -= dt;
   if (game.swarmTimer <= 0) {
-    const swarmSize = clamp(7 + Math.floor(game.elapsed / 18) + Math.floor(Math.random() * 4), 7, 18);
+    const swarmSize = clamp(4 + Math.floor(game.elapsed / 24) + Math.floor(Math.random() * 3), 4, 12);
     const swarmTypes = ['skitter', 'viper', 'zigzag', 'stalker'];
     spawnEnemyPack(swarmSize, swarmTypes[Math.floor(Math.random() * swarmTypes.length)]);
     showMessage(`Swarm incoming x${swarmSize}`);
     audio.swarm();
-    game.swarmTimer = 16 - Math.min(7.5, game.elapsed * 0.04) + Math.random() * 5;
+    game.swarmTimer = 24 - Math.min(8, game.elapsed * 0.035) + Math.random() * 6;
   }
 
   if (Math.random() < dt * (0.04 + chunk * 0.003)) {
@@ -2874,6 +2879,7 @@ function animate() {
     game.score += dt * 2.25;
     playerState.fireCooldown = Math.max(0, playerState.fireCooldown - dt);
     playerState.throwCooldown = Math.max(0, playerState.throwCooldown - dt);
+    playerState.hurtCooldown = Math.max(0, playerState.hurtCooldown - dt);
     updatePlayer(dt);
     updateGrenades(dt);
     updateEnemies(dt);
