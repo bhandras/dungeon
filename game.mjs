@@ -1389,11 +1389,12 @@ function createPlayer() {
   }));
   glow.position.set(-0.55, 1.9, -0.68);
   glow.scale.setScalar(0.65);
+  const contactShadow = createContactShadow(0.95, 0.22);
 
-  group.add(legs, bootLeft, bootRight, torso, coatPanel, chestGlow, shoulders, armLeft, armRight, head, hood, visor, scarf, gun, gunCore, torchMesh, glow);
+  group.add(contactShadow, legs, bootLeft, bootRight, torso, coatPanel, chestGlow, shoulders, armLeft, armRight, head, hood, visor, scarf, gun, gunCore, torchMesh, glow);
   group.traverse((obj) => {
     if (obj.isMesh) {
-      obj.castShadow = true;
+      obj.castShadow = false;
       obj.receiveShadow = true;
     }
   });
@@ -1409,6 +1410,24 @@ function createPlayer() {
   };
 }
 
+function createContactShadow(radius = 0.8, opacity = 0.2) {
+  const shadow = new THREE.Mesh(
+    new THREE.CircleGeometry(radius, 24),
+    new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      opacity,
+      depthWrite: false,
+    })
+  );
+  shadow.rotation.x = -Math.PI * 0.5;
+  shadow.position.y = 0.026;
+  shadow.renderOrder = -1;
+  shadow.receiveShadow = false;
+  shadow.castShadow = false;
+  return shadow;
+}
+
 function createEnemy(typeKey, x, z) {
   const type = ENEMY_TYPES[typeKey];
   const group = new THREE.Group();
@@ -1417,6 +1436,7 @@ function createEnemy(typeKey, x, z) {
   const spikeMat = new THREE.MeshStandardMaterial({ color: 0x5c6675, roughness: 0.58, metalness: 0.16, emissive: 0x101722, emissiveIntensity: 0.25 });
   const eyeMat = new THREE.MeshBasicMaterial({ color: type.eye });
   const animatedParts = { segments: [], fins: [], wings: [] };
+  group.add(createContactShadow(type.radius * 1.08, 0.2));
 
   if (typeKey === 'viper') {
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.42 * type.scale, 16, 14), bodyMat);
@@ -1534,7 +1554,7 @@ function createEnemy(typeKey, x, z) {
 
   group.traverse((obj) => {
     if (obj.isMesh) {
-      obj.castShadow = true;
+      obj.castShadow = false;
       obj.receiveShadow = true;
     }
   });
