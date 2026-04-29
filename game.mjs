@@ -49,6 +49,12 @@ const clock = new THREE.Clock();
 const raycaster = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const shaderTime = { value: 0 };
+const torchConeUniforms = {
+  uTime: shaderTime,
+  uPlayer: { value: new THREE.Vector2() },
+  uAim: { value: new THREE.Vector2(1, 0) },
+  uReveal: { value: null },
+};
 
 function normalizeInputKey(key) {
   if (!key) return null;
@@ -161,13 +167,14 @@ const floorTexture = createFloorTexture();
 const particleTexture = createParticleTexture();
 const ringTexture = createRingTexture();
 const explorationLayer = createExplorationLayer();
+torchConeUniforms.uReveal.value = explorationLayer.texture;
 
 const floor = new THREE.Mesh(
   new THREE.PlaneGeometry(MAP_W * CELL, MAP_H * CELL),
   createDungeonFloorMaterial()
 );
 floor.rotation.x = -Math.PI * 0.5;
-floor.receiveShadow = true;
+floor.receiveShadow = false;
 floor.position.y = WORLD_FLOOR_Y;
 worldGroup.add(floor);
 
@@ -178,6 +185,14 @@ const floorGlow = new THREE.Mesh(
 floorGlow.rotation.x = -Math.PI * 0.5;
 floorGlow.position.y = WORLD_FLOOR_Y + 0.018;
 worldGroup.add(floorGlow);
+
+const torchCone = new THREE.Mesh(
+  new THREE.PlaneGeometry(MAP_W * CELL, MAP_H * CELL),
+  createTorchConeMaterial()
+);
+torchCone.rotation.x = -Math.PI * 0.5;
+torchCone.position.y = WORLD_FLOOR_Y + 0.032;
+worldGroup.add(torchCone);
 
 const decalFloor = new THREE.Mesh(
   new THREE.PlaneGeometry(MAP_W * CELL, MAP_H * CELL),
@@ -742,6 +757,50 @@ function createFloorGlowMaterial() {
         float alpha = (grid * 0.075 + sigil * 0.13) * (0.55 + pulse * 0.45);
         vec3 color = mix(uTintB, uTintA, pulse);
         gl_FragColor = vec4(color, alpha * reveal);
+      }
+    `,
+  });
+}
+
+function createTorchConeMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: torchConeUniforms,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    vertexShader: `
+      varying vec2 vUv;
+      varying vec2 vWorld;
+      void main() {
+        vUv = uv;
+        vec4 world = modelMatrix * vec4(position, 1.0);
+        vWorld = world.xz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform vec2 uPlayer;
+      uniform vec2 uAim;
+      uniform sampler2D uReveal;
+      varying vec2 vUv;
+      varying vec2 vWorld;
+      void main() {
+        vec2 toPixel = vWorld - uPlayer;
+        float dist = length(toPixel);
+        vec2 dir = dist > 0.001 ? toPixel / dist : uAim;
+        vec2 aim = normalize(uAim);
+        float forward = dot(dir, aim);
+        float cone = smoothstep(0.52, 0.96, forward) * smoothstep(38.0, 2.0, dist);
+        float hotCore = smoothstep(0.9, 1.0, forward) * smoothstep(26.0, 0.0, dist);
+        float sideFeather = smoothstep(0.08, 0.72, forward) * smoothstep(18.0, 0.0, dist) * 0.24;
+        float rearSpill = smoothstep(9.0, 0.0, dist) * 0.12;
+        float pulse = 0.9 + sin(uTime * 17.0 + dist * 0.24) * 0.04;
+        vec3 revealSample = texture2D(uReveal, vUv).rgb;
+        float reveal = smoothstep(0.01, 0.16, max(max(revealSample.r, revealSample.g), revealSample.b));
+        float alpha = (cone * 0.26 + hotCore * 0.18 + sideFeather + rearSpill) * reveal * pulse;
+        vec3 color = mix(vec3(1.0, 0.55, 0.18), vec3(1.0, 0.86, 0.48), hotCore);
+        gl_FragColor = vec4(color, alpha);
       }
     `,
   });
@@ -2797,6 +2856,8 @@ function updateLights(dt) {
   const flicker = Math.sin(game.elapsed * 19) * 0.8 + Math.sin(game.elapsed * 31 + 1.4) * 0.45;
   const sideX = -player.aimDir.y;
   const sideZ = player.aimDir.x;
+  torchConeUniforms.uPlayer.value.set(player.group.position.x, player.group.position.z);
+  torchConeUniforms.uAim.value.set(player.aimDir.x, player.aimDir.y);
   torch.position.set(
     player.group.position.x - player.aimDir.x * 0.55 - sideX * 0.18,
     3.05,

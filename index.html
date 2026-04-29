@@ -236,6 +236,7 @@
       padding: 24px 26px 22px;
       box-shadow: 0 30px 90px rgba(0,0,0,0.5);
       backdrop-filter: blur(12px);
+      text-align: center;
     }
     #startCard h1 {
       margin: 0 0 8px;
@@ -370,33 +371,9 @@
 
       <div id="startScreen">
         <div id="startCard">
-          <span class="kicker">Top-down dungeon survival</span>
-          <h1>Dungeon<br/>Blackout</h1>
-          <p>
-            Sprint through a dungeon swallowed by darkness with only a torch beam, a sack of grenades,
-            and a pile of overpowered guns. The corridors you uncover stay readable, the minimap remembers what you reveal,
-            shadows stretch from walls and creatures, and every big blast rattles the whole screen.
-          </p>
-          <div class="grid">
-            <div class="card">
-              <strong>Stay alive</strong>
-              Survive as long as possible while the spawn rate climbs and swarm events hit harder.
-            </div>
-            <div class="card">
-              <strong>Loot fast</strong>
-              Grab life-ups, ammo, grenades, and weapon drops before the horde reaches you.
-            </div>
-            <div class="card">
-              <strong>Fight in the dark</strong>
-              Your torch is the only real light source. Enemies and walls throw shadows inside the beam.
-            </div>
-            <div class="card">
-              <strong>Run it locally</strong>
-              Open this folder with a simple local server and load <span class="accent">index.html</span> in the browser.
-            </div>
-          </div>
-          <div class="cta">Click anywhere to enter the dungeon</div>
-          <div id="restartPrompt">Press R or click to dive back in.</div>
+          <h1>Dungeon Blackout</h1>
+          <div class="cta">Click anywhere to start</div>
+          <div id="restartPrompt">Click anywhere to start</div>
         </div>
       </div>
     </div>
@@ -409,6 +386,6 @@
       }
     }
   </script>
-  <script type="module" src="./game.mjs"></script>
+  <script type="module" src="./game.mjs?v=lightcone-20260429"></script>
 </body>
 </html>
