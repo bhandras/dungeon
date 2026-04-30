@@ -311,8 +311,8 @@ const WEAPONS = {
     range: 20,
     recoil: 0.06,
     shake: 0.12,
-    tracerColor: 0x39bfff,
-    hitColor: 0xb8f6ff,
+    tracerColor: 0x006dff,
+    hitColor: 0x6fe8ff,
     hitSpark: 6,
     sound: 'lightning',
   },
@@ -1044,7 +1044,7 @@ function drawMinimap() {
             : pickup.meta === 'nova'
               ? '#79ffd6'
               : pickup.meta === 'lightning'
-                ? '#42c8ff'
+                ? '#1677ff'
                 : '#ffbf73';
     ctx.fillRect(tile.tx * cw + cw * 0.22, tile.ty * ch + ch * 0.22, Math.max(2, cw * 0.56), Math.max(2, ch * 0.56));
   }
@@ -1629,7 +1629,7 @@ function getPickupColor(kind, meta = null) {
     shotgun: 0xffbf73,
     flamethrower: 0xff7f4f,
     nova: 0x79ffd6,
-    lightning: 0x42c8ff,
+    lightning: 0x1677ff,
     carbine: 0x9d8cff,
   };
   return colorMap[meta] || 0x9d8cff;
@@ -1786,11 +1786,12 @@ function spawnSpellImpact(position, color, scale = 1, accent = 0xffffff) {
   spawnBurst(core, color, Math.ceil(10 * scale), 3.2 * scale, 0.24 * scale, 0.24, 0.75);
 }
 
-function createProjectileRibbonMaterial(color, alpha = 0.75) {
+function createProjectileRibbonMaterial(color, alpha = 0.75, coreColor = 0xffffff) {
   return new THREE.ShaderMaterial({
     uniforms: {
       uTime: shaderTime,
       uColor: { value: new THREE.Color(color) },
+      uCoreColor: { value: new THREE.Color(coreColor) },
       uAlpha: { value: alpha },
       uSeed: { value: Math.random() * 20 },
     },
@@ -1808,6 +1809,7 @@ function createProjectileRibbonMaterial(color, alpha = 0.75) {
     fragmentShader: `
       uniform float uTime;
       uniform vec3 uColor;
+      uniform vec3 uCoreColor;
       uniform float uAlpha;
       uniform float uSeed;
       varying vec2 vUv;
@@ -1819,7 +1821,7 @@ function createProjectileRibbonMaterial(color, alpha = 0.75) {
         float streak = 0.58 + 0.42 * sin(vUv.x * 34.0 - uTime * 24.0 + uSeed);
         float rune = 0.5 + 0.5 * sin((vUv.x + center) * 72.0 + uTime * 10.0 + uSeed);
         float edge = (pow(core, 2.0) * 1.35 + aura * 0.34 + rune * core * 0.18) * head;
-        vec3 hot = mix(vec3(1.0), uColor, 0.38);
+        vec3 hot = mix(uCoreColor, uColor, 0.24);
         vec3 color = mix(uColor, hot, core) * (1.28 + streak * 0.72);
         gl_FragColor = vec4(color, edge * uAlpha);
       }
@@ -1827,7 +1829,7 @@ function createProjectileRibbonMaterial(color, alpha = 0.75) {
   });
 }
 
-function spawnTrace(start, end, color, thickness = 0.08, life = 0.1) {
+function spawnTrace(start, end, color, thickness = 0.08, life = 0.1, coreColor = 0xffffff) {
   const delta = end.clone().sub(start);
   const distance = delta.length();
   const dir = distance > 0.0001 ? delta.clone().multiplyScalar(1 / distance) : new THREE.Vector3(1, 0, 0);
@@ -1841,7 +1843,7 @@ function spawnTrace(start, end, color, thickness = 0.08, life = 0.1) {
   const group = new THREE.Group();
   const auraBeam = new THREE.Mesh(
     new THREE.PlaneGeometry(Math.max(0.01, distance), thickness * 15.5),
-    createProjectileRibbonMaterial(color, 0.28)
+    createProjectileRibbonMaterial(color, 0.28, coreColor)
   );
   auraBeam.position.copy(start).add(end).multiplyScalar(0.5);
   auraBeam.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), dir.clone().normalize());
@@ -1849,7 +1851,7 @@ function spawnTrace(start, end, color, thickness = 0.08, life = 0.1) {
 
   const beam = new THREE.Mesh(
     new THREE.PlaneGeometry(Math.max(0.01, distance), thickness * 9.6),
-    createProjectileRibbonMaterial(color, 0.78)
+    createProjectileRibbonMaterial(color, 0.78, coreColor)
   );
   beam.position.copy(start).add(end).multiplyScalar(0.5);
   beam.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), dir.clone().normalize());
@@ -1857,7 +1859,7 @@ function spawnTrace(start, end, color, thickness = 0.08, life = 0.1) {
 
   const coreBeam = new THREE.Mesh(
     new THREE.PlaneGeometry(Math.max(0.01, distance), thickness * 3.2),
-    createProjectileRibbonMaterial(0xffffff, 0.58)
+    createProjectileRibbonMaterial(coreColor, 0.58, coreColor)
   );
   coreBeam.position.copy(beam.position);
   coreBeam.quaternion.copy(beam.quaternion);
@@ -2442,7 +2444,8 @@ function fireLightningWeapon(weapon, muzzle, baseDir) {
 
   if (!primary) {
     const missPoint = muzzle.clone().add(aimDir.multiplyScalar(stepRayToWall(muzzle, aimDir, weapon.range)));
-    spawnTrace(muzzle, missPoint, weapon.tracerColor, 0.13, 0.16);
+    spawnTrace(muzzle, missPoint, weapon.tracerColor, 0.22, 0.18, 0x2f9cff);
+    spawnTrace(muzzle, missPoint, 0x1aa0ff, 0.1, 0.14, 0x73ddff);
     spawnSpellImpact(missPoint, weapon.hitColor, 0.58, weapon.tracerColor);
     return;
   }
@@ -2454,7 +2457,8 @@ function fireLightningWeapon(weapon, muzzle, baseDir) {
 
   for (let jumps = 0; jumps < 3 && current; jumps += 1) {
     const point = current.group.position.clone().add(new THREE.Vector3(0, 1, 0));
-    spawnTrace(anchor, point, weapon.tracerColor, 0.13 + jumps * 0.025, 0.17);
+    spawnTrace(anchor, point, weapon.tracerColor, 0.24 + jumps * 0.035, 0.19, 0x2f9cff);
+    spawnTrace(anchor, point, 0x1aa0ff, 0.1 + jumps * 0.015, 0.15, 0x73ddff);
     spawnSpellImpact(point, weapon.hitColor, 0.72 + jumps * 0.16, weapon.tracerColor);
     damageEnemy(current, weapon.damage * damageScale, point, weapon);
     chained.add(current);
@@ -2529,9 +2533,13 @@ function fireCurrentWeapon() {
 
   playerState.fireCooldown = 1 / weapon.fireRate;
   game.screenShake = Math.max(game.screenShake, weapon.shake);
-  addMuzzleLight(muzzle, weapon.tracerColor, key === 'shotgun' ? 7.5 : key === 'nova' ? 12 : key === 'lightning' ? 7 : key === 'flamethrower' ? 5.5 : 4.8, key === 'shotgun' ? 11 : key === 'nova' ? 18 : 9, 0.08);
-  spawnGlowOrb(muzzle, weapon.tracerColor, key === 'nova' ? 1.55 : key === 'shotgun' ? 1.25 : 0.95, 0.12, 0.86);
-  spawnBurst(muzzle, weapon.tracerColor, key === 'flamethrower' ? 10 : key === 'nova' ? 18 : key === 'shotgun' ? 14 : 7, key === 'nova' ? 4.6 : 3.1, key === 'shotgun' ? 0.44 : 0.32, 0.2, 0.38);
+  addMuzzleLight(muzzle, weapon.tracerColor, key === 'shotgun' ? 7.5 : key === 'nova' ? 12 : key === 'lightning' ? 13 : key === 'flamethrower' ? 5.5 : 4.8, key === 'shotgun' ? 11 : key === 'nova' ? 18 : key === 'lightning' ? 14 : 9, 0.08);
+  spawnGlowOrb(muzzle, weapon.tracerColor, key === 'nova' ? 1.55 : key === 'lightning' ? 1.55 : key === 'shotgun' ? 1.25 : 0.95, 0.12, 0.86);
+  spawnBurst(muzzle, weapon.tracerColor, key === 'flamethrower' ? 10 : key === 'nova' ? 18 : key === 'shotgun' ? 14 : key === 'lightning' ? 14 : 7, key === 'nova' ? 4.6 : key === 'lightning' ? 4.2 : 3.1, key === 'shotgun' ? 0.44 : key === 'lightning' ? 0.38 : 0.32, 0.2, 0.38);
+  if (key === 'lightning') {
+    spawnGlowOrb(muzzle.clone().add(new THREE.Vector3(0, 0.08, 0)), 0x82efff, 0.95, 0.11, 0.78);
+    spawnBurst(muzzle.clone(), 0x82efff, 8, 3.4, 0.24, 0.18, 0.45);
+  }
   audio.shot(weapon.sound);
   updateHud();
 }
@@ -2545,22 +2553,26 @@ function damageEnemy(enemy, amount, point, weapon) {
   spawnBurst(point.clone(), weapon.sound === 'lightning' ? 0xe8fbff : 0xff5b74, 4, 2.2, 0.29, 0.22, 0.35);
   audio.hit();
   if (enemy.health <= 0) {
-    killEnemy(enemy, point);
+    killEnemy(enemy, point, weapon);
   }
 }
 
-function killEnemy(enemy, point) {
+function killEnemy(enemy, point, weapon = null) {
   const idx = enemies.indexOf(enemy);
   if (idx >= 0) enemies.splice(idx, 1);
   actorsGroup.remove(enemy.group);
   game.kills += 1;
   game.score += enemy.type.score + game.elapsed * 0.35;
-  spawnGlowOrb(point.clone().add(new THREE.Vector3(0, 0.48, 0)), enemy.type.eye, 2.4 * enemy.type.scale, 0.26, 0.86);
-  spawnShockwave(point.clone().add(new THREE.Vector3(0, 0.18, 0)), enemy.type.eye, 1.65 * enemy.type.scale, 0.34, 18, 0.9);
-  spawnShockwave(point.clone().add(new THREE.Vector3(0, 0.2, 0)), 0xffd18a, 0.9 * enemy.type.scale, 0.22, 12, 0.55);
-  spawnBurst(point.clone(), 0xff697d, 20, 5.4, 0.48, 0.42, 0.9);
-  spawnBurst(point.clone(), 0xffd18a, 10, 3.0, 0.4, 0.3, 0.45);
-  addBlastLight(point.clone(), enemy.type.eye, 8 * enemy.type.scale, 10 * enemy.type.scale, 0.18);
+  const electricKill = weapon?.sound === 'lightning';
+  const killColor = electricKill ? 0x006dff : enemy.type.eye;
+  const killAccent = electricKill ? 0x8ff4ff : 0xffd18a;
+  const debrisColor = electricKill ? 0x1d5dff : 0xff697d;
+  spawnGlowOrb(point.clone().add(new THREE.Vector3(0, 0.48, 0)), killColor, 2.4 * enemy.type.scale, 0.26, 0.86);
+  spawnShockwave(point.clone().add(new THREE.Vector3(0, 0.18, 0)), killColor, 1.65 * enemy.type.scale, 0.34, 18, 0.9);
+  spawnShockwave(point.clone().add(new THREE.Vector3(0, 0.2, 0)), killAccent, 0.9 * enemy.type.scale, 0.22, 12, 0.55);
+  spawnBurst(point.clone(), debrisColor, 20, 5.4, 0.48, 0.42, 0.9);
+  spawnBurst(point.clone(), killAccent, 10, 3.0, 0.4, 0.3, 0.45);
+  addBlastLight(point.clone(), killColor, 8 * enemy.type.scale, 10 * enemy.type.scale, 0.18);
   spawnFloatingText(`+${enemy.type.score}`, point.clone().add(new THREE.Vector3(0, 1.8, 0)), '#ffd18a');
   if (Math.random() < 0.11) {
     const lootRoll = Math.random();
