@@ -289,7 +289,7 @@ const WEAPONS = {
   nova: {
     name: 'Halo Pulse',
     ammoLabel: 'cells',
-    fireRate: 0.68,
+    fireRate: 1.36,
     damage: 48,
     spread: 0,
     pellets: 1,
@@ -1962,20 +1962,24 @@ function spawnShockwave(position, color = 0xffd18a, radius = 1.2, life = 0.34, g
 }
 
 function spawnExpandingRing(position, color, startRadius, endRadius, life, delay = 0, opacity = 0.9) {
-  const mat = new THREE.SpriteMaterial({
+  const mat = new THREE.MeshBasicMaterial({
     map: ringTexture,
     color,
     transparent: true,
     opacity: delay > 0 ? 0 : opacity,
     depthWrite: false,
+    depthTest: true,
     blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
   });
-  const sprite = new THREE.Sprite(mat);
+  const sprite = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
   sprite.position.copy(position);
-  sprite.position.y = 0.15;
-  sprite.scale.setScalar(startRadius);
+  sprite.position.y = 0.24;
+  sprite.rotation.x = -Math.PI * 0.5;
+  sprite.scale.set(startRadius, startRadius, 1);
+  sprite.renderOrder = 18;
   fxGroup.add(sprite);
-  shockwaves.push({ sprite, life, maxLife: life, delay, startRadius, endRadius, baseOpacity: opacity });
+  shockwaves.push({ sprite, life, maxLife: life, delay, startRadius, endRadius, baseOpacity: opacity, disposeGeometry: true });
 }
 
 function addBlastLight(position, color, intensity, distance, life) {
@@ -2226,7 +2230,11 @@ function resetGame() {
     trace.ring.material.dispose();
   }
   traces.length = 0;
-  for (const wave of shockwaves) { fxGroup.remove(wave.sprite); wave.sprite.material.dispose(); }
+  for (const wave of shockwaves) {
+    fxGroup.remove(wave.sprite);
+    if (wave.disposeGeometry) wave.sprite.geometry.dispose();
+    wave.sprite.material.dispose();
+  }
   shockwaves.length = 0;
   for (const ft of floatingTexts) ft.div.remove();
   floatingTexts.length = 0;
@@ -3019,6 +3027,7 @@ function updateEffects(dt) {
     }
     if (wave.life <= 0) {
       fxGroup.remove(wave.sprite);
+      if (wave.disposeGeometry) wave.sprite.geometry.dispose();
       wave.sprite.material.dispose();
       shockwaves.splice(i, 1);
     }
