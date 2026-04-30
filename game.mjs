@@ -39,6 +39,7 @@ const ENEMY_SPEED_SCALE = 0.46;
 
 const keys = new Map();
 const handledInputEvents = new WeakSet();
+const START_LOADOUT_CODE = String.fromCharCode(103, 111, 100, 109, 111, 100, 101);
 const mouse = { x: window.innerWidth * 0.5, y: window.innerHeight * 0.5, down: false, right: false, ndc: new THREE.Vector2() };
 const tmpVec3 = new THREE.Vector3();
 const tmpVec3B = new THREE.Vector3();
@@ -288,13 +289,13 @@ const WEAPONS = {
   nova: {
     name: 'Halo Pulse',
     ammoLabel: 'cells',
-    fireRate: 4.2,
-    damage: 34,
+    fireRate: 0.45,
+    damage: 30,
     spread: 0,
     pellets: 1,
-    range: 12.5,
+    range: 11.5,
     recoil: 0.08,
-    shake: 0.26,
+    shake: 0.34,
     tracerColor: 0x79ffd6,
     hitColor: 0x79ffd6,
     hitSpark: 11,
@@ -434,6 +435,8 @@ const game = {
   screenShake: 0,
   boomFlash: 0,
   spawnFlash: 0,
+  startCodeBuffer: '',
+  bonusLoadout: false,
 };
 
 hud.best.textContent = String(game.best);
@@ -1958,6 +1961,23 @@ function spawnShockwave(position, color = 0xffd18a, radius = 1.2, life = 0.34, g
   shockwaves.push({ sprite, life, maxLife: life, grow, baseOpacity: opacity });
 }
 
+function spawnExpandingRing(position, color, startRadius, endRadius, life, delay = 0, opacity = 0.9) {
+  const mat = new THREE.SpriteMaterial({
+    map: ringTexture,
+    color,
+    transparent: true,
+    opacity: delay > 0 ? 0 : opacity,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const sprite = new THREE.Sprite(mat);
+  sprite.position.copy(position);
+  sprite.position.y = 0.15;
+  sprite.scale.setScalar(startRadius);
+  fxGroup.add(sprite);
+  shockwaves.push({ sprite, life, maxLife: life, delay, startRadius, endRadius, baseOpacity: opacity });
+}
+
 function addBlastLight(position, color, intensity, distance, life) {
   const light = new THREE.PointLight(color, intensity, distance, 2);
   light.position.copy(position);
@@ -2150,6 +2170,15 @@ function spawnEnemyPack(count, forceType = null) {
   }
 }
 
+function applyBonusLoadout() {
+  for (const key of WEAPON_ORDER) {
+    playerState.unlocked[key] = true;
+    playerState.ammo[key] = Infinity;
+  }
+  playerState.grenades = 8;
+  updateHud();
+}
+
 function resetGame() {
   game.over = false;
   game.elapsed = 0;
@@ -2176,6 +2205,7 @@ function resetGame() {
   playerState.ammo.flamethrower = 0;
   playerState.ammo.nova = 0;
   playerState.ammo.lightning = 0;
+  if (game.bonusLoadout) applyBonusLoadout();
 
   for (const enemy of enemies) actorsGroup.remove(enemy.group);
   enemies.length = 0;
@@ -2258,7 +2288,8 @@ function updateHud() {
   hud.health.textContent = String(Math.max(0, Math.ceil(playerState.health)));
   const weapon = WEAPONS[playerState.currentWeapon];
   hud.weapon.textContent = weapon.name;
-  hud.ammo.textContent = weapon.ammoLabel === '∞' ? '∞' : String(playerState.ammo[playerState.currentWeapon]);
+  const ammo = playerState.ammo[playerState.currentWeapon];
+  hud.ammo.textContent = weapon.ammoLabel === '∞' || ammo === Infinity ? '∞' : String(ammo);
   hud.grenades.textContent = String(playerState.grenades);
   hud.time.textContent = formatTime(game.elapsed);
   hud.kills.textContent = String(game.kills);
@@ -2343,20 +2374,26 @@ function fireFlamethrower(weapon, muzzle, baseDir) {
 
 function fireNovaWeapon(weapon, muzzle) {
   const origin = player.group.position.clone().add(new THREE.Vector3(0, 0.25, 0));
-  spawnGlowOrb(origin.clone().add(new THREE.Vector3(0, 0.32, 0)), 0xffffff, 2.8, 0.18, 0.95);
-  spawnGlowOrb(origin.clone().add(new THREE.Vector3(0, 0.24, 0)), weapon.tracerColor, 5.4, 0.36, 0.78);
-  spawnShockwave(origin.clone(), weapon.tracerColor, Math.min(5.8, weapon.range * 0.28), 0.42, 18, 1);
-  spawnShockwave(origin.clone().add(new THREE.Vector3(0, 0.03, 0)), 0xffffff, Math.min(3.2, weapon.range * 0.16), 0.24, 12, 0.5);
-  spawnBurst(origin.clone().add(new THREE.Vector3(0, 0.1, 0)), weapon.tracerColor, 30, 6.5, 0.48, 0.42, 0.25);
-  addBlastLight(origin.clone(), weapon.tracerColor, 16, weapon.range * 1.45, 0.22);
+  const lifted = origin.clone().add(new THREE.Vector3(0, 0.28, 0));
+  spawnGlowOrb(lifted.clone().add(new THREE.Vector3(0, 0.1, 0)), 0xffffff, 2.2, 0.22, 0.95);
+  spawnGlowOrb(lifted, weapon.tracerColor, 4.8, 0.46, 0.74);
+  spawnExpandingRing(origin.clone(), 0xffffff, 0.35, weapon.range * 0.38, 0.28, 0, 0.7);
+  spawnExpandingRing(origin.clone().add(new THREE.Vector3(0, 0.02, 0)), 0xc7fff7, 0.8, weapon.range * 0.62, 0.44, 0.03, 0.95);
+  spawnExpandingRing(origin.clone().add(new THREE.Vector3(0, 0.04, 0)), 0x9dfff0, 1.2, weapon.range * 0.86, 0.56, 0.08, 0.8);
+  spawnExpandingRing(origin.clone().add(new THREE.Vector3(0, 0.06, 0)), weapon.tracerColor, 1.6, weapon.range * 1.08, 0.68, 0.13, 0.62);
+  spawnBurst(lifted, weapon.tracerColor, 20, 4.6, 0.36, 0.38, 0.22);
+  addBlastLight(origin.clone(), weapon.tracerColor, 14, weapon.range * 1.35, 0.32);
 
-  for (let i = 0; i < 26; i += 1) {
-    const angle = (i / 26) * Math.PI * 2;
+  for (let i = 0; i < 32; i += 1) {
+    const angle = (i / 32) * Math.PI * 2;
     const dir = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
-    const reach = weapon.range * (0.86 + Math.random() * 0.16);
+    const ring = 0.46 + (i % 4) * 0.17 + Math.random() * 0.08;
+    const reach = weapon.range * ring;
     const wallLimitedReach = stepRayToWall(origin, dir, reach);
-    const end = origin.clone().addScaledVector(dir, wallLimitedReach);
-    spawnTrace(origin, end, weapon.tracerColor, 0.14, 0.2);
+    const pos = origin.clone().addScaledVector(dir, wallLimitedReach);
+    const tangent = new THREE.Vector3(-dir.z, 0, dir.x);
+    const vel = dir.clone().multiplyScalar(2.5 + Math.random() * 2.6).addScaledVector(tangent, (Math.random() * 2 - 1) * 0.8);
+    spawnParticleSprite(i % 5 === 0 ? 0xffffff : weapon.tracerColor, pos, vel, 0.16 + Math.random() * 0.18, 0.22 + Math.random() * 0.14, 0.15, 0.9);
   }
 
   for (const enemy of enemies.slice()) {
@@ -2963,10 +3000,22 @@ function updateEffects(dt) {
 
   for (let i = shockwaves.length - 1; i >= 0; i -= 1) {
     const wave = shockwaves[i];
+    if (wave.delay > 0) {
+      wave.delay -= dt;
+      wave.sprite.material.opacity = 0;
+      continue;
+    }
     wave.life -= dt;
-    wave.sprite.material.opacity = (wave.life / wave.maxLife) * (wave.baseOpacity ?? 0.95);
-    const s = wave.sprite.scale.x + wave.grow * dt;
-    wave.sprite.scale.set(s, s, 1);
+    const alpha = Math.max(0, wave.life / wave.maxLife);
+    wave.sprite.material.opacity = alpha * (wave.baseOpacity ?? 0.95);
+    if (wave.endRadius !== undefined) {
+      const progress = 1 - alpha;
+      const s = lerp(wave.startRadius, wave.endRadius, 1 - Math.pow(1 - progress, 2.3));
+      wave.sprite.scale.set(s, s, 1);
+    } else {
+      const s = wave.sprite.scale.x + wave.grow * dt;
+      wave.sprite.scale.set(s, s, 1);
+    }
     if (wave.life <= 0) {
       fxGroup.remove(wave.sprite);
       wave.sprite.material.dispose();
@@ -3046,10 +3095,32 @@ function beginGame() {
   if (game.over) resetGame();
 }
 
+function handleStartScreenCode(event, pressed) {
+  if (!pressed || event.repeat || (game.started && !game.over)) return false;
+  const key = normalizeInputKey(event.key);
+  if (!key || key.length !== 1) return false;
+  const candidate = game.startCodeBuffer + key;
+  if (START_LOADOUT_CODE.startsWith(candidate)) {
+    game.startCodeBuffer = candidate;
+    if (candidate === START_LOADOUT_CODE) {
+      game.bonusLoadout = true;
+      game.startCodeBuffer = '';
+      applyBonusLoadout();
+    }
+    return true;
+  }
+  game.startCodeBuffer = START_LOADOUT_CODE.startsWith(key) ? key : '';
+  return false;
+}
+
 function handleKeyChange(event, pressed) {
   if (handledInputEvents.has(event)) return;
   handledInputEvents.add(event);
   setInputState(event, pressed);
+  if (handleStartScreenCode(event, pressed)) {
+    event.preventDefault();
+    return;
+  }
 
   if (eventMatchesInput(event, 'KeyW', 'w', 'KeyA', 'a', 'KeyS', 's', 'KeyD', 'd', 'Space', 'space', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight')) {
     event.preventDefault();
