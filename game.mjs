@@ -289,8 +289,8 @@ const WEAPONS = {
   nova: {
     name: 'Halo Pulse',
     ammoLabel: 'cells',
-    fireRate: 0.45,
-    damage: 30,
+    fireRate: 0.68,
+    damage: 48,
     spread: 0,
     pellets: 1,
     range: 11.5,
@@ -2375,14 +2375,14 @@ function fireFlamethrower(weapon, muzzle, baseDir) {
 function fireNovaWeapon(weapon, muzzle) {
   const origin = player.group.position.clone().add(new THREE.Vector3(0, 0.25, 0));
   const lifted = origin.clone().add(new THREE.Vector3(0, 0.28, 0));
-  spawnGlowOrb(lifted.clone().add(new THREE.Vector3(0, 0.1, 0)), 0xffffff, 2.2, 0.22, 0.95);
-  spawnGlowOrb(lifted, weapon.tracerColor, 4.8, 0.46, 0.74);
-  spawnExpandingRing(origin.clone(), 0xffffff, 0.35, weapon.range * 0.38, 0.28, 0, 0.7);
-  spawnExpandingRing(origin.clone().add(new THREE.Vector3(0, 0.02, 0)), 0xc7fff7, 0.8, weapon.range * 0.62, 0.44, 0.03, 0.95);
-  spawnExpandingRing(origin.clone().add(new THREE.Vector3(0, 0.04, 0)), 0x9dfff0, 1.2, weapon.range * 0.86, 0.56, 0.08, 0.8);
-  spawnExpandingRing(origin.clone().add(new THREE.Vector3(0, 0.06, 0)), weapon.tracerColor, 1.6, weapon.range * 1.08, 0.68, 0.13, 0.62);
-  spawnBurst(lifted, weapon.tracerColor, 20, 4.6, 0.36, 0.38, 0.22);
-  addBlastLight(origin.clone(), weapon.tracerColor, 14, weapon.range * 1.35, 0.32);
+  spawnGlowOrb(lifted.clone().add(new THREE.Vector3(0, 0.1, 0)), 0xffffff, 2.35, 0.28, 0.95);
+  spawnGlowOrb(lifted, weapon.tracerColor, 5.1, 0.62, 0.74);
+  spawnExpandingRing(origin.clone(), 0xffffff, 0.35, weapon.range * 0.38, 0.36, 0, 0.72);
+  spawnExpandingRing(origin.clone().add(new THREE.Vector3(0, 0.02, 0)), 0xc7fff7, 0.8, weapon.range * 0.62, 0.6, 0.04, 0.95);
+  spawnExpandingRing(origin.clone().add(new THREE.Vector3(0, 0.04, 0)), 0x9dfff0, 1.2, weapon.range * 0.86, 0.76, 0.1, 0.82);
+  spawnExpandingRing(origin.clone().add(new THREE.Vector3(0, 0.06, 0)), weapon.tracerColor, 1.6, weapon.range * 1.08, 0.94, 0.17, 0.66);
+  spawnBurst(lifted, weapon.tracerColor, 24, 4.8, 0.38, 0.48, 0.22);
+  addBlastLight(origin.clone(), weapon.tracerColor, 16, weapon.range * 1.4, 0.42);
 
   for (let i = 0; i < 32; i += 1) {
     const angle = (i / 32) * Math.PI * 2;
@@ -2401,9 +2401,10 @@ function fireNovaWeapon(weapon, muzzle) {
     const dist = point.distanceTo(origin);
     if (dist > weapon.range) continue;
     if (!hasLineOfSight(origin, point, 0.28)) continue;
-    const scale = 1 - dist / weapon.range;
-    spawnSpellImpact(point, weapon.tracerColor, 0.65 + scale * 0.85, 0xffffff);
-    damageEnemy(enemy, weapon.damage * (0.55 + scale * 0.75), point, weapon);
+    const proximity = 1 - dist / weapon.range;
+    const damageScale = 0.22 + Math.pow(proximity, 1.85) * 1.28;
+    spawnSpellImpact(point, weapon.tracerColor, 0.45 + proximity * 1.05, 0xffffff);
+    damageEnemy(enemy, weapon.damage * damageScale, point, weapon);
   }
 }
 
