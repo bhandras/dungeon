@@ -311,8 +311,8 @@ const WEAPONS = {
     range: 20,
     recoil: 0.06,
     shake: 0.12,
-    tracerColor: 0x9dc8ff,
-    hitColor: 0xd9f0ff,
+    tracerColor: 0x39bfff,
+    hitColor: 0xb8f6ff,
     hitSpark: 6,
     sound: 'lightning',
   },
@@ -1044,7 +1044,7 @@ function drawMinimap() {
             : pickup.meta === 'nova'
               ? '#79ffd6'
               : pickup.meta === 'lightning'
-                ? '#9dc8ff'
+                ? '#42c8ff'
                 : '#ffbf73';
     ctx.fillRect(tile.tx * cw + cw * 0.22, tile.ty * ch + ch * 0.22, Math.max(2, cw * 0.56), Math.max(2, ch * 0.56));
   }
@@ -1629,7 +1629,7 @@ function getPickupColor(kind, meta = null) {
     shotgun: 0xffbf73,
     flamethrower: 0xff7f4f,
     nova: 0x79ffd6,
-    lightning: 0x9dc8ff,
+    lightning: 0x42c8ff,
     carbine: 0x9d8cff,
   };
   return colorMap[meta] || 0x9d8cff;
@@ -1945,20 +1945,24 @@ function spawnPickupCollectEffect(pickup) {
 }
 
 function spawnShockwave(position, color = 0xffd18a, radius = 1.2, life = 0.34, grow = 20, opacity = 0.9) {
-  const mat = new THREE.SpriteMaterial({
+  const mat = new THREE.MeshBasicMaterial({
     map: ringTexture,
     color,
     transparent: true,
     opacity,
     depthWrite: false,
+    depthTest: true,
     blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
   });
-  const sprite = new THREE.Sprite(mat);
+  const sprite = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
   sprite.position.copy(position);
-  sprite.position.y = 0.15;
+  sprite.position.y = Math.max(position.y, 0.24);
+  sprite.rotation.x = -Math.PI * 0.5;
   sprite.scale.set(radius, radius, 1);
+  sprite.renderOrder = 18;
   fxGroup.add(sprite);
-  shockwaves.push({ sprite, life, maxLife: life, grow, baseOpacity: opacity });
+  shockwaves.push({ sprite, life, maxLife: life, grow, baseOpacity: opacity, disposeGeometry: true });
 }
 
 function spawnExpandingRing(position, color, startRadius, endRadius, life, delay = 0, opacity = 0.9) {
@@ -2538,7 +2542,7 @@ function damageEnemy(enemy, amount, point, weapon) {
   const impactScale = clamp(0.38 + amount * 0.018, 0.48, 1.25);
   spawnSpellImpact(point.clone(), weapon.hitColor, impactScale, weapon.tracerColor || 0xffffff);
   spawnBurst(point.clone(), weapon.hitColor, 8, 3.2, 0.32, 0.25, 0.55);
-  spawnBurst(point.clone(), 0xff5b74, 4, 2.2, 0.29, 0.22, 0.35);
+  spawnBurst(point.clone(), weapon.sound === 'lightning' ? 0xe8fbff : 0xff5b74, 4, 2.2, 0.29, 0.22, 0.35);
   audio.hit();
   if (enemy.health <= 0) {
     killEnemy(enemy, point);
