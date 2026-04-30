@@ -288,11 +288,11 @@ const WEAPONS = {
   nova: {
     name: 'Halo Pulse',
     ammoLabel: 'cells',
-    fireRate: 6.5,
-    damage: 50,
+    fireRate: 4.2,
+    damage: 34,
     spread: 0,
     pellets: 1,
-    range: 16,
+    range: 12.5,
     recoil: 0.08,
     shake: 0.26,
     tracerColor: 0x79ffd6,
@@ -321,7 +321,7 @@ const WEAPON_ORDER = ['carbine', 'shotgun', 'flamethrower', 'nova', 'lightning']
 const WEAPON_PICKUP_AMOUNTS = {
   shotgun: 28,
   flamethrower: 110,
-  nova: 18,
+  nova: 10,
   lightning: 70,
 };
 
@@ -1178,7 +1178,7 @@ function showMessage(text, duration = 1.65) {
 }
 
 function getEnemySpeedMultiplier() {
-  return 1 + Math.min(0.16, game.elapsed * 0.00045);
+  return 1 + game.elapsed * 0.00055;
 }
 
 function generateDungeon(seed) {
@@ -2134,9 +2134,12 @@ function spawnEnemyPack(count, forceType = null) {
     let type = forceType;
     if (!type) {
       const roll = Math.random();
-      if (difficulty > 1.8 && roll > 0.86) type = 'brute';
-      else if (difficulty > 1.35 && roll > 0.68) type = 'zigzag';
-      else if (difficulty > 1.12 && roll > 0.46) type = 'viper';
+      const bruteThreshold = Math.max(0.62, 0.9 - game.elapsed * 0.00022);
+      const zigzagThreshold = Math.max(0.44, 0.72 - game.elapsed * 0.00016);
+      const viperThreshold = Math.max(0.28, 0.5 - game.elapsed * 0.00012);
+      if (difficulty > 1.8 && roll > bruteThreshold) type = 'brute';
+      else if (difficulty > 1.35 && roll > zigzagThreshold) type = 'zigzag';
+      else if (difficulty > 1.12 && roll > viperThreshold) type = 'viper';
       else if (difficulty > 1.2 && roll > 0.24) type = 'stalker';
       else type = Math.random() < 0.5 ? 'skitter' : 'viper';
     }
@@ -2652,7 +2655,7 @@ function updatePickups(dt) {
     } else if (pickup.kind === 'ammo') {
       playerState.ammo.shotgun += 14;
       playerState.ammo.flamethrower += 55;
-      playerState.ammo.nova += 8;
+      playerState.ammo.nova += 4;
       playerState.ammo.lightning += 32;
       showMessage('Ammo stockpiled');
       spawnFloatingText('+Ammo', player.group.position.clone().add(new THREE.Vector3(0, 2.4, 0)), '#ffd18a');
@@ -2824,19 +2827,20 @@ function updateSpawns(dt) {
   const chunk = 1 + Math.floor(game.elapsed / 18);
   while (game.spawnAccumulator >= 1) {
     game.spawnAccumulator -= 1;
-    const packChance = clamp(0.08 + game.elapsed * 0.003, 0.08, 0.2);
-    const packSize = Math.random() < packChance ? 2 : 1;
+    const guaranteedExtra = Math.floor(game.elapsed / 210);
+    const packChance = clamp(0.08 + game.elapsed * 0.0022, 0.08, 0.82);
+    const packSize = 1 + guaranteedExtra + (Math.random() < packChance ? 1 : 0);
     spawnEnemyPack(packSize);
   }
 
   game.swarmTimer -= dt;
   if (game.swarmTimer <= 0) {
-    const swarmSize = clamp(4 + Math.floor(game.elapsed / 24) + Math.floor(Math.random() * 3), 4, 12);
+    const swarmSize = 4 + Math.floor(game.elapsed / 24) + Math.floor(Math.random() * 3);
     const swarmTypes = ['skitter', 'viper', 'zigzag', 'stalker'];
     spawnEnemyPack(swarmSize, swarmTypes[Math.floor(Math.random() * swarmTypes.length)]);
     showMessage(`Swarm incoming x${swarmSize}`);
     audio.swarm();
-    game.swarmTimer = 24 - Math.min(8, game.elapsed * 0.035) + Math.random() * 6;
+    game.swarmTimer = Math.max(7.5, 24 - game.elapsed * 0.028) + Math.random() * 5;
   }
 
   if (Math.random() < dt * (0.04 + chunk * 0.003)) {
