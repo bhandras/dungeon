@@ -392,6 +392,19 @@ const ENEMY_TYPES = {
     scale: 0.92,
     movement: 'slither',
   },
+  serpent: {
+    name: 'serpent',
+    hp: 185,
+    speed: 3.85 * ENEMY_SPEED_SCALE,
+    damage: 18,
+    radius: 1.26,
+    attackCooldown: 1.35,
+    score: 70,
+    color: 0x132a2a,
+    eye: 0x4bffd7,
+    scale: 1.62,
+    movement: 'serpent',
+  },
   zigzag: {
     name: 'zigzag',
     hp: 44,
@@ -431,6 +444,7 @@ const game = {
   best: Number(localStorage.getItem('dungeon-blackout-best') || 0),
   spawnAccumulator: 0,
   swarmTimer: 13,
+  serpentTimer: 48,
   messageTimer: 0,
   screenShake: 0,
   boomFlash: 0,
@@ -1481,45 +1495,59 @@ function createEnemy(typeKey, x, z) {
   const eyeMat = new THREE.MeshBasicMaterial({ color: type.eye });
   const animatedParts = { segments: [], fins: [], wings: [] };
 
-  if (typeKey === 'viper') {
+  if (typeKey === 'viper' || typeKey === 'serpent') {
+    const huge = typeKey === 'serpent';
+    const segmentCount = huge ? 13 : 7;
+    const segmentSpacing = huge ? 0.34 : 0.38;
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.42 * type.scale, 16, 14), bodyMat);
-    head.scale.set(1.05, 0.72, 1.38);
+    head.scale.set(huge ? 1.28 : 1.05, huge ? 0.64 : 0.72, huge ? 1.64 : 1.38);
     head.position.set(0, 0.66 * type.scale, -0.46 * type.scale);
     const crest = new THREE.Mesh(new THREE.ConeGeometry(0.16 * type.scale, 0.5 * type.scale, 9), spikeMat);
     crest.rotation.x = -0.75;
     crest.position.set(0, 1.02 * type.scale, -0.48 * type.scale);
-    const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.54 * type.scale, 0.12 * type.scale, 0.34 * type.scale), shellMat);
-    jaw.position.set(0, 0.54 * type.scale, -0.72 * type.scale);
+    const jaw = new THREE.Mesh(new THREE.BoxGeometry((huge ? 0.78 : 0.54) * type.scale, 0.12 * type.scale, (huge ? 0.46 : 0.34) * type.scale), shellMat);
+    jaw.position.set(0, 0.54 * type.scale, (huge ? -0.84 : -0.72) * type.scale);
 
-    const eyeLeft = new THREE.Mesh(new THREE.SphereGeometry(0.075 * type.scale, 10, 10), eyeMat);
+    const eyeLeft = new THREE.Mesh(new THREE.SphereGeometry((huge ? 0.095 : 0.075) * type.scale, 10, 10), eyeMat);
     const eyeRight = eyeLeft.clone();
-    eyeLeft.position.set(-0.16 * type.scale, 0.78 * type.scale, -0.84 * type.scale);
-    eyeRight.position.set(0.16 * type.scale, 0.78 * type.scale, -0.84 * type.scale);
+    eyeLeft.position.set((huge ? -0.22 : -0.16) * type.scale, 0.78 * type.scale, (huge ? -0.98 : -0.84) * type.scale);
+    eyeRight.position.set((huge ? 0.22 : 0.16) * type.scale, 0.78 * type.scale, (huge ? -0.98 : -0.84) * type.scale);
     group.add(head, crest, jaw, eyeLeft, eyeRight);
 
-    for (let i = 0; i < 7; i += 1) {
-      const segmentScale = 1 - i * 0.055;
+    if (huge) {
+      const crownMat = new THREE.MeshStandardMaterial({ color: 0x456f6b, roughness: 0.48, metalness: 0.18, emissive: 0x163a35, emissiveIntensity: 0.5 });
+      for (let i = 0; i < 5; i += 1) {
+        const crown = new THREE.Mesh(new THREE.ConeGeometry((0.08 + i * 0.012) * type.scale, (0.46 - i * 0.025) * type.scale, 8), crownMat);
+        crown.rotation.x = -0.82;
+        crown.position.set((i - 2) * 0.16 * type.scale, (1.1 + Math.sin(i) * 0.03) * type.scale, (-0.32 + i * 0.03) * type.scale);
+        group.add(crown);
+        animatedParts.fins.push(crown);
+      }
+    }
+
+    for (let i = 0; i < segmentCount; i += 1) {
+      const segmentScale = 1 - i * (huge ? 0.038 : 0.055);
       const segment = new THREE.Mesh(new THREE.SphereGeometry(0.36 * type.scale * segmentScale, 14, 12), i % 2 ? shellMat : bodyMat);
-      segment.scale.set(1.0, 0.52, 1.42);
-      segment.position.set(0, 0.48 * type.scale, (0.02 + i * 0.38) * type.scale);
+      segment.scale.set(huge ? 1.24 : 1.0, huge ? 0.46 : 0.52, huge ? 1.72 : 1.42);
+      segment.position.set(0, (huge ? 0.43 : 0.48) * type.scale, (0.02 + i * segmentSpacing) * type.scale);
       group.add(segment);
       animatedParts.segments.push(segment);
 
-      if (i < 5) {
-        const finLeft = new THREE.Mesh(new THREE.ConeGeometry(0.07 * type.scale, 0.32 * type.scale, 7), spikeMat);
+      if (i < (huge ? 10 : 5)) {
+        const finLeft = new THREE.Mesh(new THREE.ConeGeometry((huge ? 0.06 : 0.07) * type.scale, (huge ? 0.46 : 0.32) * type.scale, 7), spikeMat);
         const finRight = finLeft.clone();
         finLeft.rotation.z = -0.92;
         finRight.rotation.z = 0.92;
-        finLeft.position.set(-0.34 * type.scale * segmentScale, 0.7 * type.scale, segment.position.z - 0.02 * type.scale);
-        finRight.position.set(0.34 * type.scale * segmentScale, 0.7 * type.scale, segment.position.z - 0.02 * type.scale);
+        finLeft.position.set((huge ? -0.42 : -0.34) * type.scale * segmentScale, (huge ? 0.63 : 0.7) * type.scale, segment.position.z - 0.02 * type.scale);
+        finRight.position.set((huge ? 0.42 : 0.34) * type.scale * segmentScale, (huge ? 0.63 : 0.7) * type.scale, segment.position.z - 0.02 * type.scale);
         group.add(finLeft, finRight);
         animatedParts.fins.push(finLeft, finRight);
       }
     }
 
-    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.24 * type.scale, 0.72 * type.scale, 10), bodyMat);
+    const tail = new THREE.Mesh(new THREE.ConeGeometry((huge ? 0.22 : 0.24) * type.scale, (huge ? 1.15 : 0.72) * type.scale, 10), bodyMat);
     tail.rotation.x = Math.PI * 0.5;
-    tail.position.set(0, 0.44 * type.scale, 2.85 * type.scale);
+    tail.position.set(0, (huge ? 0.38 : 0.44) * type.scale, (0.2 + segmentCount * segmentSpacing) * type.scale);
     group.add(tail);
     animatedParts.segments.push(tail);
   } else {
@@ -1587,12 +1615,12 @@ function createEnemy(typeKey, x, z) {
     map: particleTexture,
     color: type.eye,
     transparent: true,
-    opacity: typeKey === 'viper' ? 0.68 : 0.58,
+    opacity: typeKey === 'viper' || typeKey === 'serpent' ? 0.68 : 0.58,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
   }));
-  eyeGlow.position.set(0, typeKey === 'viper' ? 0.8 * type.scale : 1.18 * type.scale, typeKey === 'viper' ? -0.92 * type.scale : -0.52 * type.scale);
-  eyeGlow.scale.setScalar((typeKey === 'viper' ? 0.55 : 0.72) * type.scale);
+  eyeGlow.position.set(0, typeKey === 'viper' || typeKey === 'serpent' ? 0.8 * type.scale : 1.18 * type.scale, typeKey === 'viper' || typeKey === 'serpent' ? -0.92 * type.scale : -0.52 * type.scale);
+  eyeGlow.scale.setScalar((typeKey === 'viper' || typeKey === 'serpent' ? 0.55 : 0.72) * type.scale);
   group.add(eyeGlow);
 
   group.traverse((obj) => {
@@ -1618,6 +1646,7 @@ function createEnemy(typeKey, x, z) {
     hitFlash: 0,
     animatedParts,
     facingY: 0,
+    velocity: new THREE.Vector2(),
   };
 }
 
@@ -2164,10 +2193,12 @@ function spawnEnemyPack(count, forceType = null) {
     let type = forceType;
     if (!type) {
       const roll = Math.random();
+      const serpentThreshold = Math.max(0.94, 0.992 - game.elapsed * 0.00035);
       const bruteThreshold = Math.max(0.62, 0.9 - game.elapsed * 0.00022);
       const zigzagThreshold = Math.max(0.44, 0.72 - game.elapsed * 0.00016);
       const viperThreshold = Math.max(0.28, 0.5 - game.elapsed * 0.00012);
-      if (difficulty > 1.8 && roll > bruteThreshold) type = 'brute';
+      if (difficulty > 1.85 && roll > serpentThreshold) type = 'serpent';
+      else if (difficulty > 1.8 && roll > bruteThreshold) type = 'brute';
       else if (difficulty > 1.35 && roll > zigzagThreshold) type = 'zigzag';
       else if (difficulty > 1.12 && roll > viperThreshold) type = 'viper';
       else if (difficulty > 1.2 && roll > 0.24) type = 'stalker';
@@ -2196,6 +2227,7 @@ function resetGame() {
   game.kills = 0;
   game.spawnAccumulator = 0;
   game.swarmTimer = 18 + Math.random() * 7;
+  game.serpentTimer = 42 + Math.random() * 16;
   game.screenShake = 0;
   game.boomFlash = 0;
   game.spawnFlash = 0;
@@ -2743,10 +2775,12 @@ function animateEnemyParts(enemy) {
     for (let i = 0; i < enemy.animatedParts.segments.length; i += 1) {
       const segment = enemy.animatedParts.segments[i];
       if (segment.userData.baseY === undefined) segment.userData.baseY = segment.position.y;
-      const wave = Math.sin(enemy.wobble * 3.8 - i * 0.72);
-      segment.position.x = wave * 0.16 * scale * (1 - i * 0.045);
-      segment.position.y = segment.userData.baseY + Math.cos(enemy.wobble * 4.1 - i * 0.55) * 0.025 * scale;
-      segment.rotation.y = wave * 0.28;
+      const huge = enemy.type.movement === 'serpent';
+      const wave = Math.sin(enemy.wobble * (huge ? 2.35 : 3.8) - i * (huge ? 0.48 : 0.72));
+      segment.position.x = wave * (huge ? 0.28 : 0.16) * scale * (1 - i * (huge ? 0.025 : 0.045));
+      segment.position.y = segment.userData.baseY + Math.cos(enemy.wobble * (huge ? 2.8 : 4.1) - i * 0.55) * (huge ? 0.018 : 0.025) * scale;
+      segment.rotation.y = wave * (huge ? 0.42 : 0.28);
+      segment.rotation.z = huge ? wave * 0.05 : 0;
     }
   }
 
@@ -2754,7 +2788,7 @@ function animateEnemyParts(enemy) {
     for (let i = 0; i < enemy.animatedParts.fins.length; i += 1) {
       const fin = enemy.animatedParts.fins[i];
       const side = fin.position.x < 0 ? -1 : 1;
-      fin.rotation.z = side * (0.8 + Math.sin(enemy.wobble * 5.4 + i) * 0.18);
+      fin.rotation.z = side * (0.8 + Math.sin(enemy.wobble * (enemy.type.movement === 'serpent' ? 3.2 : 5.4) + i) * (enemy.type.movement === 'serpent' ? 0.12 : 0.18));
     }
   }
 
@@ -2791,6 +2825,11 @@ function updateEnemies(dt) {
       const sway = Math.sin(enemy.wobble * 2.7 + dist * 0.17) * 0.68;
       steerX = nx * 0.86 + -nz * sway;
       steerZ = nz * 0.86 + nx * sway;
+    } else if (enemy.type.movement === 'serpent') {
+      const orbit = Math.sin(enemy.wobble * 0.95 + dist * 0.08) * (dist > 5.5 ? 1.35 : 0.62);
+      const longCurve = Math.sin(enemy.wobble * 0.42) * 0.48;
+      steerX = nx * 0.62 + -nz * (orbit + longCurve);
+      steerZ = nz * 0.62 + nx * (orbit + longCurve);
     } else if (enemy.type.movement === 'zigzag') {
       const sideStep = Math.sin(enemy.wobble * 3.9) * (dist > 4.2 ? 0.92 : 0.36);
       steerX = nx * 0.72 + -nz * sideStep;
@@ -2835,13 +2874,25 @@ function updateEnemies(dt) {
       chosenZ = wander.z;
     }
 
-    moveCircle(enemy, chosenX * enemySpeed * dt, chosenZ * enemySpeed * dt, enemy.radius);
-    enemy.wobble += dt * (2 + enemySpeed * 0.18);
+    if (enemy.type.movement === 'serpent') {
+      const desiredX = chosenX * enemySpeed;
+      const desiredZ = chosenZ * enemySpeed;
+      const glide = 1 - Math.exp(-dt * 2.9);
+      enemy.velocity.x = lerp(enemy.velocity.x, desiredX, glide);
+      enemy.velocity.y = lerp(enemy.velocity.y, desiredZ, glide);
+      moveCircle(enemy, enemy.velocity.x * dt, enemy.velocity.y * dt, enemy.radius);
+    } else {
+      moveCircle(enemy, chosenX * enemySpeed * dt, chosenZ * enemySpeed * dt, enemy.radius);
+      enemy.velocity.set(chosenX * enemySpeed, chosenZ * enemySpeed);
+    }
+    enemy.wobble += dt * (enemy.type.movement === 'serpent' ? 1.25 + enemySpeed * 0.08 : 2 + enemySpeed * 0.18);
 
-    const bob = Math.sin(enemy.wobble * 6) * 0.08 * enemy.type.scale;
+    const bob = Math.sin(enemy.wobble * (enemy.type.movement === 'serpent' ? 2.6 : 6)) * (enemy.type.movement === 'serpent' ? 0.04 : 0.08) * enemy.type.scale;
     enemy.group.position.y = bob - enemy.spawnRise * 1.1;
-    const targetFacing = angleForNegativeZFacing(nx, nz);
-    enemy.facingY = lerpAngle(enemy.facingY, targetFacing, clamp(dt * 9, 0, 1));
+    const facingX = enemy.type.movement === 'serpent' && enemy.velocity.lengthSq() > 0.01 ? enemy.velocity.x : nx;
+    const facingZ = enemy.type.movement === 'serpent' && enemy.velocity.lengthSq() > 0.01 ? enemy.velocity.y : nz;
+    const targetFacing = angleForNegativeZFacing(facingX, facingZ);
+    enemy.facingY = lerpAngle(enemy.facingY, targetFacing, clamp(dt * (enemy.type.movement === 'serpent' ? 4.5 : 9), 0, 1));
     enemy.group.rotation.y = enemy.facingY;
     animateEnemyParts(enemy);
     const pulse = 1 + enemy.hitFlash * 0.35;
@@ -2903,6 +2954,13 @@ function updateSpawns(dt) {
     showMessage(`Swarm incoming x${swarmSize}`);
     audio.swarm();
     game.swarmTimer = Math.max(7.5, 24 - game.elapsed * 0.028) + Math.random() * 5;
+  }
+
+  game.serpentTimer -= dt;
+  if (game.serpentTimer <= 0 && game.elapsed > 32) {
+    spawnEnemyPack(1, 'serpent');
+    showMessage('Huge serpent emerging');
+    game.serpentTimer = Math.max(34, 76 - game.elapsed * 0.09) + Math.random() * 24;
   }
 
   if (Math.random() < dt * (0.04 + chunk * 0.003)) {
