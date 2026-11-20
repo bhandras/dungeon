@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Dungeon Blackout</title>
+  <meta name="theme-color" content="#08090d" />
   <style>
     :root {
       --bg: #05060a;
@@ -30,8 +31,7 @@
       position: fixed;
       inset: 0;
       overflow: hidden;
-      transform-origin: center center;
-      will-change: transform;
+      overscroll-behavior: none;
     }
     canvas {
       display: block;
@@ -40,6 +40,7 @@
       cursor: none;
     }
     #screen > canvas {
+      touch-action: none;
       filter: saturate(1.38) contrast(1.08) brightness(1.06);
     }
     #hud {
@@ -250,25 +251,6 @@
       font-size: 15px;
       line-height: 1.5;
     }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-      margin: 18px 0;
-    }
-    .card {
-      padding: 14px 15px;
-      border-radius: 16px;
-      border: 1px solid rgba(255,255,255,0.06);
-      background: rgba(255,255,255,0.03);
-    }
-    .card strong {
-      display: block;
-      margin-bottom: 6px;
-      font-size: 14px;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-    }
     .cta {
       margin-top: 16px;
       display: inline-flex;
@@ -300,28 +282,8 @@
     #vignette {
       background: radial-gradient(circle at center, rgba(0,0,0,0) 28%, rgba(0,0,0,0.14) 58%, rgba(0,0,0,0.42) 100%);
     }
-    #restartPrompt {
-      display: none;
-      margin-top: 8px;
-      font-size: 14px;
-      color: var(--accent);
-      font-weight: 700;
-    }
-    @media (max-width: 800px) {
-      .grid { grid-template-columns: 1fr; }
-      #controlsHint { display: none; }
-      .panel { min-width: 0; }
-      #stats, #scoreBoard, #mapPanel {
-        width: calc(50vw - 20px);
-      }
-      #mapPanel {
-        bottom: 14px;
-      }
-      #stats {
-        width: calc(50vw - 20px);
-      }
-    }
   </style>
+  <link rel="stylesheet" href="./mobile.css" />
 </head>
 <body>
   <div id="screen">
@@ -369,11 +331,26 @@
       <div id="boomFlash"></div>
       <div id="vignette"></div>
 
+      <div id="touchControls" aria-label="Touch controls" hidden>
+        <div id="moveStick" class="stick" aria-label="Move"><span class="stick-thumb"></span><span class="stick-label">Move</span></div>
+        <div id="aimStick" class="stick" aria-label="Aim and fire"><span class="stick-thumb"></span><span class="stick-label">Aim &amp; Fire</span></div>
+        <div class="touch-actions">
+          <button type="button" id="cycleButton" aria-label="Cycle weapons">Swap</button>
+          <button type="button" id="grenadeButton">Grenade</button>
+        </div>
+        <div class="touch-tools">
+          <button type="button" id="mapButton" aria-controls="mapPanel" aria-expanded="false">Map</button>
+          <button type="button" id="pauseButton">Pause</button>
+        </div>
+      </div>
+
       <div id="startScreen">
-        <div id="startCard">
-          <h1>Dungeon Blackout</h1>
-          <div class="cta">Click anywhere to start</div>
-          <div id="restartPrompt">Click anywhere to start</div>
+        <div id="startCard" role="dialog" aria-modal="true" aria-labelledby="menuTitle">
+          <h1 id="menuTitle">Dungeon Blackout</h1>
+          <p id="touchHint">Drag left to move. Drag right to aim and fire.</p>
+          <p id="runSummary" hidden></p>
+          <button type="button" class="cta" id="playButton">Enter the dungeon</button>
+          <button type="button" class="cta" id="restartButton" hidden>Restart run</button>
         </div>
       </div>
     </div>
@@ -387,6 +364,6 @@
     }
   </script>
   <script async src="https://vibejam.cc/2026/widget.js"></script>
-  <script type="module" src="./game.mjs?v=lightcone-20260429"></script>
+  <script type="module" src="./game.mjs?v=touch-models-20261120"></script>
 </body>
 </html>
