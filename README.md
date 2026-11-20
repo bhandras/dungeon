@@ -23,6 +23,16 @@ Then open `http://localhost:8000/`.
 
 ## Controls
 
+### Touch
+
+- Drag the left stick to move.
+- Drag the right stick to aim and keep it held to fire. Release to stop firing and keep your last aim direction.
+- Tap **Grenade** to throw in your current aim direction, or **Swap** to cycle unlocked weapons.
+- Tap **Map** to toggle exploration or **Pause** to resume or restart from the menu.
+- Play in portrait or landscape. Leaving the tab pauses a run.
+
+### Keyboard and mouse
+
 - Move: `WASD`
 - Aim: mouse
 - Fire: left mouse
@@ -30,8 +40,11 @@ Then open `http://localhost:8000/`.
 - Cycle weapons: `Q`
 - Switch directly: `1` to `5`
 - Restart: `R`
+- Pause or resume: `Esc`
 
 ## Notes
+
+- The title screen uses ImageGen concept art for the Explorer and dungeon creatures. The in-game models are faceted 3D meshes built in Three.js.
 
 - The torch uses a long forward cone with softer spill around the player.
 - Weapons use layered projectile, glow, shockwave, and particle effects.

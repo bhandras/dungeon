@@ -1,8 +1,23 @@
 import * as THREE from 'three';
+import { createTouchControls } from './mobile.mjs';
+import { createExplorerModel, createCreatureModel } from './characters.mjs';
 
 const screenEl = document.getElementById('screen');
 const startScreenEl = document.getElementById('startScreen');
-const restartPromptEl = document.getElementById('restartPrompt');
+const menuTitleEl = document.getElementById('menuTitle');
+const playButton = document.getElementById('playButton');
+const restartButton = document.getElementById('restartButton');
+const runSummaryEl = document.getElementById('runSummary');
+const touchHintEl = document.getElementById('touchHint');
+const touchControlsEl = document.getElementById('touchControls');
+const mapPanel = document.getElementById('mapPanel');
+const mapButton = document.getElementById('mapButton');
+const grenadeButton = document.getElementById('grenadeButton');
+const compactScreen = window.matchMedia('(max-width: 620px), (max-height: 510px)');
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+const coarsePointer = window.matchMedia('(pointer: coarse)');
+let usingTouch = coarsePointer.matches;
+let weaponPreview = null;
 const messageEl = document.getElementById('message');
 const damageFlashEl = document.getElementById('damageFlash');
 const boomFlashEl = document.getElementById('boomFlash');
@@ -34,7 +49,7 @@ const MAX_HEALTH = 100;
 const WORLD_FLOOR_Y = 0;
 const FLOOR_REPEAT = 18;
 const VISION_RADIUS_TILES = 11;
-const FLOOR_LIGHT_TEXEL_SCALE = 8;
+const FLOOR_LIGHT_TEXEL_SCALE = usingTouch ? 4 : 8;
 const ENEMY_SPEED_SCALE = 0.46;
 
 const keys = new Map();
@@ -46,6 +61,7 @@ const tmpVec3B = new THREE.Vector3();
 const tmpVec2 = new THREE.Vector2();
 const tmpQuat = new THREE.Quaternion();
 const tmpMat = new THREE.Matrix4();
+const cameraTarget = new THREE.Vector3();
 const clock = new THREE.Clock();
 const raycaster = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -115,9 +131,7 @@ scene.fog = new THREE.FogExp2(0x06080d, 0.0225);
 const camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.1, 100);
 scene.add(camera);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
+const renderer = new THREE.WebGLRenderer({ antialias: !usingTouch, powerPreference: 'high-performance' });
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -137,7 +151,7 @@ scene.add(ambient, hemi);
 const torchTarget = new THREE.Object3D();
 const torch = new THREE.SpotLight(0xffd39d, 74, 72, Math.PI * 0.27, 0.78, 1.12);
 torch.castShadow = true;
-torch.shadow.mapSize.set(1024, 1024);
+torch.shadow.mapSize.setScalar(usingTouch ? 512 : 1024);
 torch.shadow.bias = -0.0004;
 torch.shadow.normalBias = 0.03;
 torch.shadow.camera.near = 0.5;
@@ -326,8 +340,6 @@ const WEAPON_PICKUP_AMOUNTS = {
   lightning: 70,
 };
 
-const weaponPreview = createWeaponPreview();
-
 const playerState = {
   health: MAX_HEALTH,
   grenades: 3,
@@ -361,7 +373,6 @@ const ENEMY_TYPES = {
     radius: 0.56,
     attackCooldown: 0.85,
     score: 10,
-    color: 0x16181d,
     eye: 0xff4e63,
     scale: 0.8,
     movement: 'direct',
@@ -374,7 +385,6 @@ const ENEMY_TYPES = {
     radius: 0.82,
     attackCooldown: 1.05,
     score: 20,
-    color: 0x1a1d25,
     eye: 0xff5b74,
     scale: 1.0,
     movement: 'direct',
@@ -387,7 +397,6 @@ const ENEMY_TYPES = {
     radius: 0.66,
     attackCooldown: 0.95,
     score: 18,
-    color: 0x172822,
     eye: 0x79ffd6,
     scale: 0.92,
     movement: 'slither',
@@ -400,7 +409,6 @@ const ENEMY_TYPES = {
     radius: 1.26,
     attackCooldown: 1.35,
     score: 70,
-    color: 0x132a2a,
     eye: 0x4bffd7,
     scale: 1.62,
     movement: 'serpent',
@@ -413,7 +421,6 @@ const ENEMY_TYPES = {
     radius: 0.7,
     attackCooldown: 0.92,
     score: 22,
-    color: 0x182033,
     eye: 0xffd18a,
     scale: 0.95,
     movement: 'zigzag',
@@ -426,7 +433,6 @@ const ENEMY_TYPES = {
     radius: 1.08,
     attackCooldown: 1.18,
     score: 45,
-    color: 0x242830,
     eye: 0xff7a5c,
     scale: 1.28,
     movement: 'direct',
@@ -438,6 +444,7 @@ const audio = createAudioEngine();
 const game = {
   started: false,
   over: false,
+  paused: false,
   elapsed: 0,
   score: 0,
   kills: 0,
@@ -456,9 +463,13 @@ const game = {
 hud.best.textContent = String(game.best);
 let lastAimWorld = new THREE.Vector3(player.group.position.x + 8, 0, player.group.position.z - 8);
 
-showMessage('Torch online');
-resetGame();
-animate();
+const touch = createTouchControls({
+  isPlaying,
+  onTouch() {
+    setInputMode(true);
+    audio.unlock();
+  },
+});
 
 function createAudioEngine() {
   const SFX_GAIN = 5.2;
@@ -704,7 +715,7 @@ function syncWeaponPreviewSize(preview = weaponPreview) {
 }
 
 function setActiveWeaponPreview(key) {
-  if (weaponPreview.activeKey === key) return;
+  if (!weaponPreview || weaponPreview.activeKey === key) return;
   weaponPreview.activeKey = key;
   for (const previewKey of WEAPON_ORDER) {
     weaponPreview.models[previewKey].visible = previewKey === key;
@@ -712,6 +723,7 @@ function setActiveWeaponPreview(key) {
 }
 
 function renderWeaponPreview(dt) {
+  if (!weaponPreview || usingTouch || compactScreen.matches) return;
   weaponPreview.spin += dt;
   const model = weaponPreview.models[playerState.currentWeapon];
   if (model) {
@@ -1104,7 +1116,8 @@ function updateExploration(dt, force = false) {
   const dz = player.group.position.z - exploration.lastPlayerZ;
   const movedEnough = dx * dx + dz * dz > 0.18;
   const aimChanged = Math.abs(player.aimDir.x - exploration.lastAimX) + Math.abs(player.aimDir.y - exploration.lastAimY) > 0.085;
-  if (!force && exploration.revealAccumulator < 0.05 && !movedEnough && !aimChanged) return;
+  if (!force && usingTouch && exploration.revealAccumulator < 0.065) return;
+  if (!force && !usingTouch && exploration.revealAccumulator < 0.05 && !movedEnough && !aimChanged) return;
 
   exploration.revealAccumulator = 0;
   exploration.lastPlayerX = player.group.position.x;
@@ -1141,7 +1154,7 @@ function updateExploration(dt, force = false) {
   }
 
   drawExplorationTexture();
-  drawMinimap();
+  if (!usingTouch || mapPanel.hasAttribute('data-open')) drawMinimap();
 }
 
 function mulberry32(seed) {
@@ -1409,230 +1422,27 @@ function buildWalls(grid) {
 
 function createPlayer() {
   const group = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x7a7f8c, roughness: 0.62, metalness: 0.18 });
-  const coatMat = new THREE.MeshStandardMaterial({ color: 0x252933, roughness: 0.88, metalness: 0.02 });
-  const gunMat = new THREE.MeshStandardMaterial({ color: 0x383d49, roughness: 0.55, metalness: 0.35 });
-  const trimMat = new THREE.MeshStandardMaterial({ color: 0xffd18a, emissive: 0xffa550, emissiveIntensity: 0.7, roughness: 0.35, metalness: 0.22 });
-  const lensMat = new THREE.MeshBasicMaterial({ color: 0x9dc8ff });
-  const torchMat = new THREE.MeshStandardMaterial({ color: 0x3d2f1e, emissive: 0xffa550, emissiveIntensity: 0.8, roughness: 0.5, metalness: 0.25 });
-
-  const legs = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.46, 1.2, 12), coatMat);
-  legs.position.y = 0.6;
-  const bootLeft = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.18, 0.54), gunMat);
-  const bootRight = bootLeft.clone();
-  bootLeft.position.set(-0.23, 0.1, -0.08);
-  bootRight.position.set(0.23, 0.1, -0.08);
-  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.58, 1.25, 14), bodyMat);
-  torso.position.y = 1.55;
-  const coatPanel = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.9, 0.08), coatMat);
-  coatPanel.position.set(0, 1.5, -0.52);
-  const chestGlow = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.42, 0.08), trimMat);
-  chestGlow.position.set(0, 1.72, -0.58);
-  const shoulders = new THREE.Mesh(new THREE.SphereGeometry(0.62, 16, 14), coatMat);
-  shoulders.scale.set(1.2, 0.65, 1.0);
-  shoulders.position.y = 2.2;
-  const armLeft = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 0.76, 10), coatMat);
-  const armRight = armLeft.clone();
-  armLeft.rotation.x = 0.78;
-  armRight.rotation.x = 0.78;
-  armLeft.position.set(-0.55, 1.85, -0.32);
-  armRight.position.set(0.55, 1.85, -0.32);
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.42, 18, 16), bodyMat);
-  head.position.set(0, 2.68, 0.05);
-  const hood = new THREE.Mesh(new THREE.SphereGeometry(0.48, 16, 14), coatMat);
-  hood.scale.set(1.05, 0.95, 1.05);
-  hood.position.set(0, 2.68, -0.04);
-  const visor = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.08, 0.06), lensMat);
-  visor.position.set(0, 2.74, -0.42);
-  const scarf = new THREE.Mesh(new THREE.TorusGeometry(0.36, 0.055, 8, 24), trimMat);
-  scarf.position.set(0, 2.34, -0.02);
-  scarf.rotation.x = Math.PI * 0.5;
-  const gun = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 1.25), gunMat);
-  gun.position.set(0.42, 1.8, -0.55);
-  gun.rotation.x = 0.12;
-  const gunCore = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.8), trimMat);
-  gunCore.position.set(0.42, 1.91, -0.6);
-  gunCore.rotation.x = 0.12;
-  const torchMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.5, 8), torchMat);
-  torchMesh.rotation.z = Math.PI * 0.5;
-  torchMesh.position.set(-0.36, 1.9, -0.55);
-  const glow = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: particleTexture,
-    color: 0xffc87a,
-    transparent: true,
-    opacity: 0.65,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  }));
-  glow.position.set(-0.55, 1.9, -0.68);
-  glow.scale.setScalar(0.65);
-
-  group.add(legs, bootLeft, bootRight, torso, coatPanel, chestGlow, shoulders, armLeft, armRight, head, hood, visor, scarf, gun, gunCore, torchMesh, glow);
-  group.traverse((obj) => {
-    if (obj.isMesh) {
-      obj.castShadow = false;
-      obj.receiveShadow = true;
-    }
-  });
-
+  const model = createExplorerModel();
+  group.add(model.root);
   const start = tileToWorld(dungeon.rooms[0].cx, dungeon.rooms[0].cy);
   group.position.set(start.x, 0, start.z);
-
   return {
     group,
+    model,
     velocity: new THREE.Vector2(),
     aimDir: new THREE.Vector2(1, 0),
     bob: 0,
+    walkPhase: 0,
   };
 }
 
 function createEnemy(typeKey, x, z) {
   const type = ENEMY_TYPES[typeKey];
   const group = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: type.color, roughness: 0.86, metalness: 0.04, emissive: type.color, emissiveIntensity: 0.16 });
-  const shellMat = new THREE.MeshStandardMaterial({ color: 0x3a3f4c, roughness: 0.65, metalness: 0.12, emissive: 0x151a24, emissiveIntensity: 0.36 });
-  const spikeMat = new THREE.MeshStandardMaterial({ color: 0x5c6675, roughness: 0.58, metalness: 0.16, emissive: 0x101722, emissiveIntensity: 0.25 });
-  const eyeMat = new THREE.MeshBasicMaterial({ color: type.eye });
-  const animatedParts = { segments: [], fins: [], wings: [] };
-
-  if (typeKey === 'viper' || typeKey === 'serpent') {
-    const huge = typeKey === 'serpent';
-    const segmentCount = huge ? 13 : 7;
-    const segmentSpacing = huge ? 0.34 : 0.38;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.42 * type.scale, 16, 14), bodyMat);
-    head.scale.set(huge ? 1.28 : 1.05, huge ? 0.64 : 0.72, huge ? 1.64 : 1.38);
-    head.position.set(0, 0.66 * type.scale, -0.46 * type.scale);
-    const crest = new THREE.Mesh(new THREE.ConeGeometry(0.16 * type.scale, 0.5 * type.scale, 9), spikeMat);
-    crest.rotation.x = -0.75;
-    crest.position.set(0, 1.02 * type.scale, -0.48 * type.scale);
-    const jaw = new THREE.Mesh(new THREE.BoxGeometry((huge ? 0.78 : 0.54) * type.scale, 0.12 * type.scale, (huge ? 0.46 : 0.34) * type.scale), shellMat);
-    jaw.position.set(0, 0.54 * type.scale, (huge ? -0.84 : -0.72) * type.scale);
-
-    const eyeLeft = new THREE.Mesh(new THREE.SphereGeometry((huge ? 0.095 : 0.075) * type.scale, 10, 10), eyeMat);
-    const eyeRight = eyeLeft.clone();
-    eyeLeft.position.set((huge ? -0.22 : -0.16) * type.scale, 0.78 * type.scale, (huge ? -0.98 : -0.84) * type.scale);
-    eyeRight.position.set((huge ? 0.22 : 0.16) * type.scale, 0.78 * type.scale, (huge ? -0.98 : -0.84) * type.scale);
-    group.add(head, crest, jaw, eyeLeft, eyeRight);
-
-    if (huge) {
-      const crownMat = new THREE.MeshStandardMaterial({ color: 0x456f6b, roughness: 0.48, metalness: 0.18, emissive: 0x163a35, emissiveIntensity: 0.5 });
-      for (let i = 0; i < 5; i += 1) {
-        const crown = new THREE.Mesh(new THREE.ConeGeometry((0.08 + i * 0.012) * type.scale, (0.46 - i * 0.025) * type.scale, 8), crownMat);
-        crown.rotation.x = -0.82;
-        crown.position.set((i - 2) * 0.16 * type.scale, (1.1 + Math.sin(i) * 0.03) * type.scale, (-0.32 + i * 0.03) * type.scale);
-        group.add(crown);
-        animatedParts.fins.push(crown);
-      }
-    }
-
-    for (let i = 0; i < segmentCount; i += 1) {
-      const segmentScale = 1 - i * (huge ? 0.038 : 0.055);
-      const segment = new THREE.Mesh(new THREE.SphereGeometry(0.36 * type.scale * segmentScale, 14, 12), i % 2 ? shellMat : bodyMat);
-      segment.scale.set(huge ? 1.24 : 1.0, huge ? 0.46 : 0.52, huge ? 1.72 : 1.42);
-      segment.position.set(0, (huge ? 0.43 : 0.48) * type.scale, (0.02 + i * segmentSpacing) * type.scale);
-      group.add(segment);
-      animatedParts.segments.push(segment);
-
-      if (i < (huge ? 10 : 5)) {
-        const finLeft = new THREE.Mesh(new THREE.ConeGeometry((huge ? 0.06 : 0.07) * type.scale, (huge ? 0.46 : 0.32) * type.scale, 7), spikeMat);
-        const finRight = finLeft.clone();
-        finLeft.rotation.z = -0.92;
-        finRight.rotation.z = 0.92;
-        finLeft.position.set((huge ? -0.42 : -0.34) * type.scale * segmentScale, (huge ? 0.63 : 0.7) * type.scale, segment.position.z - 0.02 * type.scale);
-        finRight.position.set((huge ? 0.42 : 0.34) * type.scale * segmentScale, (huge ? 0.63 : 0.7) * type.scale, segment.position.z - 0.02 * type.scale);
-        group.add(finLeft, finRight);
-        animatedParts.fins.push(finLeft, finRight);
-      }
-    }
-
-    const tail = new THREE.Mesh(new THREE.ConeGeometry((huge ? 0.22 : 0.24) * type.scale, (huge ? 1.15 : 0.72) * type.scale, 10), bodyMat);
-    tail.rotation.x = Math.PI * 0.5;
-    tail.position.set(0, (huge ? 0.38 : 0.44) * type.scale, (0.2 + segmentCount * segmentSpacing) * type.scale);
-    group.add(tail);
-    animatedParts.segments.push(tail);
-  } else {
-    const base = new THREE.Mesh(new THREE.SphereGeometry(0.7 * type.scale, 16, 14), bodyMat);
-    base.scale.set(typeKey === 'zigzag' ? 0.88 : 1.18, typeKey === 'skitter' ? 0.58 : 0.82, typeKey === 'zigzag' ? 1.34 : 1.0);
-    base.position.y = 0.72 * type.scale;
-
-    const upper = new THREE.Mesh(new THREE.SphereGeometry(0.42 * type.scale, 14, 12), shellMat);
-    upper.scale.set(typeKey === 'zigzag' ? 0.74 : 1.0, 0.88, typeKey === 'zigzag' ? 1.38 : 1.1);
-    upper.position.set(0, 1.15 * type.scale, -0.08);
-
-    const eyeLeft = new THREE.Mesh(new THREE.SphereGeometry(0.1 * type.scale, 10, 10), eyeMat);
-    const eyeRight = eyeLeft.clone();
-    eyeLeft.position.set(-0.16 * type.scale, 1.17 * type.scale, -0.46 * type.scale);
-    eyeRight.position.set(0.16 * type.scale, 1.17 * type.scale, -0.46 * type.scale);
-
-    group.add(base, upper, eyeLeft, eyeRight);
-
-    const legCount = typeKey === 'skitter' ? 6 : 4;
-    for (let i = 0; i < legCount; i += 1) {
-      const side = i % 2 === 0 ? -1 : 1;
-      const row = Math.floor(i / 2);
-      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.055 * type.scale, 0.075 * type.scale, 0.72 * type.scale, 7), shellMat);
-      leg.rotation.z = side * 0.95;
-      leg.rotation.x = 0.18;
-      leg.position.set(side * (0.54 + row * 0.06) * type.scale, 0.42 * type.scale, (-0.18 + row * 0.26) * type.scale);
-      group.add(leg);
-    }
-
-    const spineCount = typeKey === 'brute' ? 5 : 3;
-    for (let i = 0; i < spineCount; i += 1) {
-      const spine = new THREE.Mesh(new THREE.ConeGeometry(0.09 * type.scale, 0.32 * type.scale, 8), spikeMat);
-      spine.rotation.x = -0.55;
-      spine.position.set((i - (spineCount - 1) * 0.5) * 0.22 * type.scale, (1.46 + Math.sin(i) * 0.04) * type.scale, 0.02 * type.scale);
-      group.add(spine);
-    }
-
-    if (typeKey === 'brute') {
-      const shoulder = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.35, 0.55), shellMat);
-      shoulder.position.set(0, 1.42, 0.02);
-      const hornLeft = new THREE.Mesh(new THREE.ConeGeometry(0.11, 0.48, 9), spikeMat);
-      const hornRight = hornLeft.clone();
-      hornLeft.rotation.z = -0.62;
-      hornRight.rotation.z = 0.62;
-      hornLeft.position.set(-0.36, 1.72, -0.28);
-      hornRight.position.set(0.36, 1.72, -0.28);
-      group.add(shoulder, hornLeft, hornRight);
-    }
-
-    if (typeKey === 'zigzag') {
-      const bladeMat = new THREE.MeshStandardMaterial({ color: 0x52637d, roughness: 0.5, metalness: 0.22, emissive: 0x1a3355, emissiveIntensity: 0.52 });
-      for (let i = 0; i < 2; i += 1) {
-        const side = i === 0 ? -1 : 1;
-        const wing = new THREE.Mesh(new THREE.ConeGeometry(0.16 * type.scale, 0.9 * type.scale, 4), bladeMat);
-        wing.rotation.z = side * 0.88;
-        wing.rotation.x = 0.22;
-        wing.position.set(side * 0.58 * type.scale, 0.86 * type.scale, -0.02 * type.scale);
-        group.add(wing);
-        animatedParts.wings.push(wing);
-      }
-    }
-  }
-
-  const eyeGlow = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: particleTexture,
-    color: type.eye,
-    transparent: true,
-    opacity: typeKey === 'viper' || typeKey === 'serpent' ? 0.68 : 0.58,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  }));
-  eyeGlow.position.set(0, typeKey === 'viper' || typeKey === 'serpent' ? 0.8 * type.scale : 1.18 * type.scale, typeKey === 'viper' || typeKey === 'serpent' ? -0.92 * type.scale : -0.52 * type.scale);
-  eyeGlow.scale.setScalar((typeKey === 'viper' || typeKey === 'serpent' ? 0.55 : 0.72) * type.scale);
-  group.add(eyeGlow);
-
-  group.traverse((obj) => {
-    if (obj.isMesh) {
-      obj.castShadow = false;
-      obj.receiveShadow = true;
-    }
-  });
-
+  const { root, animatedParts } = createCreatureModel(typeKey, type);
+  group.add(root);
   group.position.set(x, 0, z);
   actorsGroup.add(group);
-
   return {
     typeKey,
     type,
@@ -2221,6 +2031,9 @@ function applyBonusLoadout() {
 }
 
 function resetGame() {
+  clearInput();
+  closeMap();
+  game.paused = false;
   game.over = false;
   game.elapsed = 0;
   game.score = 0;
@@ -2285,6 +2098,10 @@ function resetGame() {
   player.group.position.set(start.x, 0, start.z);
   player.velocity.set(0, 0);
   player.aimDir.set(1, 0);
+  player.group.rotation.y = angleForNegativeZFacing(1, 0);
+  player.bob = 0;
+  player.walkPhase = 0;
+  animateExplorer(0);
   resetExploration();
 
   spawnEnemyPack(4);
@@ -2293,7 +2110,7 @@ function resetGame() {
   createPickup('grenade', start.x + 1.5, start.z - 4);
 
   updateHud();
-  restartPromptEl.style.display = 'none';
+  syncMenu();
   showMessage('Enter the blackout');
 }
 
@@ -2337,6 +2154,11 @@ function updateHud() {
   const ammo = playerState.ammo[playerState.currentWeapon];
   hud.ammo.textContent = weapon.ammoLabel === '∞' || ammo === Infinity ? '∞' : String(ammo);
   hud.grenades.textContent = String(playerState.grenades);
+  if (usingTouch) {
+    const label = 'Grenade · ' + playerState.grenades;
+    if (grenadeButton.textContent !== label) grenadeButton.textContent = label;
+    grenadeButton.disabled = playerState.grenades === 0;
+  }
   hud.time.textContent = formatTime(game.elapsed);
   hud.kills.textContent = String(game.kills);
   hud.score.textContent = String(Math.floor(game.score));
@@ -2368,8 +2190,9 @@ function endGame() {
   game.best = Math.max(game.best, Math.floor(game.score));
   localStorage.setItem('dungeon-blackout-best', String(game.best));
   hud.best.textContent = String(game.best);
-  startScreenEl.style.display = 'grid';
-  restartPromptEl.style.display = 'block';
+  clearInput();
+  closeMap();
+  syncMenu(true);
   showMessage('Run ended');
 }
 
@@ -2621,10 +2444,15 @@ function killEnemy(enemy, point, weapon = null) {
 
 function throwGrenade() {
   if (game.over || playerState.throwCooldown > 0 || playerState.grenades <= 0) return;
-  const aim = getAimWorld();
-  tmpVec2.set(aim.x - player.group.position.x, aim.z - player.group.position.z);
-  if (tmpVec2.lengthSq() < 0.001) return;
-  tmpVec2.normalize();
+  if (usingTouch) {
+    updateTouchAim();
+    tmpVec2.copy(player.aimDir);
+  } else {
+    const aim = getAimWorld();
+    tmpVec2.set(aim.x - player.group.position.x, aim.z - player.group.position.z);
+    if (tmpVec2.lengthSq() < 0.001) return;
+    tmpVec2.normalize();
+  }
   const vel = new THREE.Vector2(tmpVec2.x, tmpVec2.y).multiplyScalar(11.5);
   const mesh = new THREE.Mesh(
     new THREE.SphereGeometry(0.2, 14, 12),
@@ -2770,33 +2598,33 @@ function updatePickups(dt) {
 }
 
 function animateEnemyParts(enemy) {
-  const scale = enemy.type.scale;
   if (enemy.animatedParts.segments.length) {
     for (let i = 0; i < enemy.animatedParts.segments.length; i += 1) {
       const segment = enemy.animatedParts.segments[i];
       if (segment.userData.baseY === undefined) segment.userData.baseY = segment.position.y;
       const huge = enemy.type.movement === 'serpent';
       const wave = Math.sin(enemy.wobble * (huge ? 2.35 : 3.8) - i * (huge ? 0.48 : 0.72));
-      segment.position.x = wave * (huge ? 0.28 : 0.16) * scale * (1 - i * (huge ? 0.025 : 0.045));
-      segment.position.y = segment.userData.baseY + Math.cos(enemy.wobble * (huge ? 2.8 : 4.1) - i * 0.55) * (huge ? 0.018 : 0.025) * scale;
+      segment.position.x = wave * (huge ? 0.28 : 0.16) * (1 - i * (huge ? 0.025 : 0.045));
+      segment.position.y = segment.userData.baseY + Math.cos(enemy.wobble * (huge ? 2.8 : 4.1) - i * 0.55) * (huge ? 0.018 : 0.025);
       segment.rotation.y = wave * (huge ? 0.42 : 0.28);
       segment.rotation.z = huge ? wave * 0.05 : 0;
     }
   }
 
-  if (enemy.animatedParts.fins.length) {
-    for (let i = 0; i < enemy.animatedParts.fins.length; i += 1) {
-      const fin = enemy.animatedParts.fins[i];
-      const side = fin.position.x < 0 ? -1 : 1;
-      fin.rotation.z = side * (0.8 + Math.sin(enemy.wobble * (enemy.type.movement === 'serpent' ? 3.2 : 5.4) + i) * (enemy.type.movement === 'serpent' ? 0.12 : 0.18));
-    }
+  const { gait } = enemy.animatedParts;
+  if (gait.length) {
+    const stride = Math.sin(enemy.wobble * 5.8);
+    gait[0].position.y = 0.19 + Math.max(0, stride) * 0.09;
+    gait[1].position.y = 0.19 + Math.max(0, -stride) * 0.09;
+    gait[0].rotation.x = stride * 0.09;
+    gait[1].rotation.x = -stride * 0.09;
   }
 
   if (enemy.animatedParts.wings.length) {
     for (let i = 0; i < enemy.animatedParts.wings.length; i += 1) {
       const wing = enemy.animatedParts.wings[i];
       const side = wing.position.x < 0 ? -1 : 1;
-      wing.rotation.z = side * (0.82 + Math.sin(enemy.wobble * 8.0) * 0.24);
+      wing.rotation.z = -side * (0.33 + Math.sin(enemy.wobble * 8.0) * 0.20);
       wing.rotation.y = Math.sin(enemy.wobble * 5.8 + i) * 0.22;
     }
   }
@@ -2907,10 +2735,27 @@ function updateEnemies(dt) {
   }
 }
 
+function updateTouchAim() {
+  if (!touch.aim.x && !touch.aim.y) return false;
+  player.aimDir.set(touch.aim.x, touch.aim.y).normalize();
+  return true;
+}
+
+function animateExplorer(dt) {
+  const pace = Math.min(1, player.velocity.length() / 8.9);
+  player.bob += dt * (2 + pace * 9.5);
+  player.walkPhase += dt * pace * 13;
+  const stride = Math.sin(player.walkPhase) * pace * 0.48;
+  player.model.legs[0].rotation.x = stride;
+  player.model.legs[1].rotation.x = -stride;
+  player.model.scarf.rotation.x = -pace * 0.35 + Math.sin(player.bob) * 0.1;
+  player.group.position.y = Math.sin(player.bob) * (0.02 + pace * 0.04);
+}
+
 function updatePlayer(dt) {
   const inputX = (isInputDown('KeyD', 'd', 'ArrowRight') ? 1 : 0) - (isInputDown('KeyA', 'a', 'ArrowLeft') ? 1 : 0);
   const inputZ = (isInputDown('KeyS', 's', 'ArrowDown') ? 1 : 0) - (isInputDown('KeyW', 'w', 'ArrowUp') ? 1 : 0);
-  tmpVec2.set(inputX, inputZ);
+  tmpVec2.set(inputX + touch.move.x, inputZ + touch.move.y);
   if (tmpVec2.lengthSq() > 1) tmpVec2.normalize();
 
   const targetSpeed = 8.9;
@@ -2919,17 +2764,18 @@ function updatePlayer(dt) {
 
   moveCircle(player, player.velocity.x * dt, player.velocity.y * dt, PLAYER_RADIUS);
 
-  const aim = getAimWorld();
-  const aimX = aim.x - player.group.position.x;
-  const aimZ = aim.z - player.group.position.z;
-  const aimLen = Math.hypot(aimX, aimZ) || 1;
-  player.aimDir.set(aimX / aimLen, aimZ / aimLen);
-  player.group.rotation.y = Math.atan2(-player.aimDir.x, -player.aimDir.y);
+  const touchFiring = usingTouch && updateTouchAim();
+  if (!usingTouch) {
+    const aim = getAimWorld();
+    const aimX = aim.x - player.group.position.x;
+    const aimZ = aim.z - player.group.position.z;
+    if (Math.hypot(aimX, aimZ) > 0.001) player.aimDir.set(aimX, aimZ).normalize();
+  }
+  player.group.rotation.y = angleForNegativeZFacing(player.aimDir.x, player.aimDir.y);
 
-  player.bob += dt * (2 + tmpVec2.length() * 9.5);
-  player.group.position.y = Math.sin(player.bob) * 0.06;
+  animateExplorer(dt);
 
-  if (mouse.down) fireCurrentWeapon();
+  if (mouse.down || touchFiring) fireCurrentWeapon();
   if (mouse.right || isInputDown('Space', 'space')) throwGrenade();
 }
 
@@ -3108,13 +2954,13 @@ function updateEffects(dt) {
   }
 
   game.screenShake = Math.max(0, game.screenShake - dt * 1.9);
-  const shakePx = game.screenShake * 13;
+  const shakePx = game.screenShake * (reducedMotion.matches ? 0 : usingTouch ? 5 : 13);
   if (shakePx > 0.02) {
     const sx = (Math.random() * 2 - 1) * shakePx;
     const sy = (Math.random() * 2 - 1) * shakePx;
-    screenEl.style.transform = `translate(${sx}px, ${sy}px)`;
+    renderer.domElement.style.transform = `translate(${sx}px, ${sy}px)`;
   } else {
-    screenEl.style.transform = 'translate(0px, 0px)';
+    renderer.domElement.style.transform = 'translate(0px, 0px)';
   }
 
   playerState.hurtFlash = Math.max(0, playerState.hurtFlash - dt * 2.2);
@@ -3129,23 +2975,24 @@ function updateEffects(dt) {
 }
 
 function updateCamera(dt) {
-  const camTarget = new THREE.Vector3(
-    player.group.position.x - player.aimDir.x * 2.2,
+  const aimOffset = usingTouch ? 1.0 : 2.2;
+  cameraTarget.set(
+    player.group.position.x - player.aimDir.x * aimOffset,
     22,
-    player.group.position.z + 12 - player.aimDir.y * 2.2
+    player.group.position.z + 12 - player.aimDir.y * aimOffset
   );
-  camera.position.lerp(camTarget, 1 - Math.exp(-dt * 9));
+  camera.position.lerp(cameraTarget, 1 - Math.exp(-dt * 9));
   tmpVec3.set(player.group.position.x, 0.6, player.group.position.z - 1.5);
   camera.lookAt(tmpVec3);
 }
 
 function animate() {
   requestAnimationFrame(animate);
-  let dt = clock.getDelta();
-  dt = Math.min(dt, 0.033);
+  const dt = Math.min(clock.getDelta(), 0.033);
+  if (game.paused || document.hidden) return;
   shaderTime.value += dt;
 
-  if (game.started && !game.over) {
+  if (isPlaying()) {
     game.elapsed += dt;
     game.score += dt * 2.25;
     playerState.fireCooldown = Math.max(0, playerState.fireCooldown - dt);
@@ -3172,11 +3019,65 @@ function animate() {
   renderer.render(scene, camera);
 }
 
+function isPlaying() {
+  return game.started && !game.over && !game.paused;
+}
+
+function syncMenu(focus = false) {
+  const playing = isPlaying();
+  startScreenEl.hidden = playing;
+  touchControlsEl.hidden = !playing || !usingTouch;
+  if (playing) return;
+
+  menuTitleEl.textContent = game.over ? 'Run ended' : game.paused ? 'Paused' : 'Dungeon Blackout';
+  playButton.textContent = game.over ? 'Play again' : game.paused ? 'Resume' : 'Enter the dungeon';
+  restartButton.hidden = !game.paused;
+  touchHintEl.hidden = game.started;
+  runSummaryEl.hidden = !game.over;
+  if (game.over) {
+    runSummaryEl.textContent = 'Survived ' + formatTime(game.elapsed) + ' · Score ' +
+      Math.floor(game.score) + ' · Best ' + game.best;
+  }
+  if (focus) playButton.focus({ preventScroll: true });
+}
+
 function beginGame() {
   audio.unlock();
   game.started = true;
-  startScreenEl.style.display = 'none';
+  game.paused = false;
   if (game.over) resetGame();
+  syncMenu();
+  if (startScreenEl.contains(document.activeElement)) document.activeElement.blur();
+}
+
+function pauseGame() {
+  if (!isPlaying()) return;
+  clearInput();
+  closeMap();
+  game.paused = true;
+  syncMenu(true);
+}
+
+function closeMap() {
+  mapPanel.removeAttribute('data-open');
+  mapButton.setAttribute('aria-expanded', 'false');
+}
+
+function clearInput() {
+  mouse.down = false;
+  mouse.right = false;
+  keys.clear();
+  touch.reset();
+}
+
+function setInputMode(touchMode) {
+  if (usingTouch === touchMode) return;
+  usingTouch = touchMode;
+  clearInput();
+  closeMap();
+  resizeGame();
+  updateHud();
+  syncMenu();
 }
 
 function handleStartScreenCode(event, pressed) {
@@ -3200,6 +3101,7 @@ function handleStartScreenCode(event, pressed) {
 function handleKeyChange(event, pressed) {
   if (handledInputEvents.has(event)) return;
   handledInputEvents.add(event);
+  if (event.target.closest?.('button') && eventMatchesInput(event, 'Space', 'space', 'Enter', 'enter')) return;
   setInputState(event, pressed);
   if (handleStartScreenCode(event, pressed)) {
     event.preventDefault();
@@ -3212,6 +3114,12 @@ function handleKeyChange(event, pressed) {
   }
 
   if (!pressed) return;
+  if (eventMatchesInput(event, 'Escape', 'escape')) {
+    if (!event.repeat && game.paused) beginGame();
+    else if (!event.repeat) pauseGame();
+    return;
+  }
+  if (game.paused) return;
 
   if (eventMatchesInput(event, 'Digit1', '1')) {
     event.preventDefault();
@@ -3240,13 +3148,39 @@ function handleKeyChange(event, pressed) {
   }
   if (eventMatchesInput(event, 'KeyR', 'r')) {
     event.preventDefault();
+    audio.unlock();
     game.started = true;
-    startScreenEl.style.display = 'none';
     resetGame();
   }
 }
 
+playButton.addEventListener('click', beginGame);
+restartButton.addEventListener('click', () => {
+  audio.unlock();
+  resetGame();
+});
+document.getElementById('pauseButton').addEventListener('click', pauseGame);
+document.getElementById('cycleButton').addEventListener('click', () => {
+  if (isPlaying()) cycleWeapon(1);
+});
+grenadeButton.addEventListener('click', () => {
+  if (isPlaying()) throwGrenade();
+});
+mapButton.addEventListener('click', () => {
+  if (!isPlaying()) return;
+  const open = mapPanel.toggleAttribute('data-open');
+  mapButton.setAttribute('aria-expanded', String(open));
+  if (open) drawMinimap();
+});
+
 window.addEventListener('pointerdown', (event) => {
+  if (event.pointerType === 'touch') {
+    setInputMode(true);
+    return;
+  }
+  if (event.target.closest?.('button') || game.paused) return;
+  if (event.pointerType !== 'mouse') return;
+  setInputMode(false);
   mouse.x = event.clientX;
   mouse.y = event.clientY;
   if (!game.started || game.over) {
@@ -3258,11 +3192,13 @@ window.addEventListener('pointerdown', (event) => {
 });
 
 window.addEventListener('pointerup', (event) => {
+  if (event.pointerType !== 'mouse') return;
   if (event.button === 0) mouse.down = false;
   if (event.button === 2) mouse.right = false;
 });
 
-window.addEventListener('mousemove', (event) => {
+window.addEventListener('pointermove', (event) => {
+  if (event.pointerType !== 'mouse') return;
   mouse.x = event.clientX;
   mouse.y = event.clientY;
 });
@@ -3274,16 +3210,43 @@ window.addEventListener('keyup', (event) => handleKeyChange(event, false), { cap
 document.addEventListener('keydown', (event) => handleKeyChange(event, true), { capture: true });
 document.addEventListener('keyup', (event) => handleKeyChange(event, false), { capture: true });
 
-window.addEventListener('blur', () => {
-  mouse.down = false;
-  mouse.right = false;
-  keys.clear();
+window.addEventListener('blur', clearInput);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) return;
+  clearInput();
+  pauseGame();
 });
 
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+function resizeGame() {
+  screenEl.dataset.input = usingTouch ? 'touch' : 'desktop';
+  screenEl.toggleAttribute('data-compact', compactScreen.matches);
+  const { clientWidth: width, clientHeight: height } = screenEl;
+  camera.aspect = width / Math.max(1, height);
+  const verticalFov = 2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(22)) / camera.aspect);
+  camera.fov = usingTouch ? clamp(THREE.MathUtils.radToDeg(verticalFov), 58, 104) : 58;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  syncWeaponPreviewSize();
+
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, usingTouch ? 1.25 : 2));
+  renderer.setSize(width, height, false);
+  if (game.paused) renderer.render(scene, camera);
+  if (!usingTouch && mapPanel.offsetWidth) drawMinimap();
+  if (!usingTouch && !compactScreen.matches) {
+    if (!weaponPreview) {
+      weaponPreview = createWeaponPreview();
+      setActiveWeaponPreview(playerState.currentWeapon);
+    } else {
+      syncWeaponPreviewSize();
+    }
+  }
+}
+
+window.addEventListener('resize', () => {
+  touch.reset();
+  resizeGame();
 });
+coarsePointer.addEventListener('change', (event) => setInputMode(event.matches));
+
+resizeGame();
+resetGame();
+updateCamera(1);
+animate();
